@@ -1,0 +1,19 @@
+# Build output (publish binaries via GitHub Releases instead)
+*.exe
+*.pdb
+*.app/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local test/preview output
+*.png
+*.txt
+
+# Editor / OS
+.vs/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini

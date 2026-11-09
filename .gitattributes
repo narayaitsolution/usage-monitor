@@ -1,0 +1,9 @@
+* text=auto
+
+# Scripts that run on macOS/Linux must keep LF line endings
+*.sh    text eol=lf
+*.py    text eol=lf
+*.swift text eol=lf
+
+# Windows batch files need CRLF
+*.cmd   text eol=crlf
