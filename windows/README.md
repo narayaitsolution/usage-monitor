@@ -23,10 +23,20 @@ Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `c
 Tidak perlu .NET SDK. Build memakai compiler C# bawaan .NET Framework (`csc.exe`, C# 5):
 
 ```cmd
-build.cmd
+build.cmd            :: hanya build
+build.cmd install    :: build + aktifkan auto-start + jalankan UsageTray
 ```
 
 Hasilnya `UsageTray.exe` di folder `windows/`. Cukup salin file `.exe` ini ke komputer lain.
+
+`build.cmd install` cocok untuk instalasi pertama di komputer baru maupun update setelah `git pull`:
+
+1. Menghentikan UsageTray yang sedang berjalan, karena file `.exe` yang sedang dipakai tidak bisa ditimpa.
+2. Build `UsageTray.exe`.
+3. Mendaftarkan auto-start di `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Tidak butuh hak admin.
+4. Menjalankan UsageTray.
+
+Auto-start bisa dimatikan kapan saja lewat klik kanan icon → **Jalankan saat Windows start**.
 
 ## Debug tanpa GUI
 

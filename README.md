@@ -74,15 +74,42 @@ Cukup salah satu saja. Jika hanya satu CLI yang terpasang, UsageTray hanya menam
 
 Tidak perlu install .NET SDK — compiler C# sudah ada di Windows.
 
-1. Clone atau download repository ini.
-2. Buka folder `windows` lalu jalankan:
+**Cara cepat (disarankan)** — build, aktifkan auto-start, dan langsung jalankan dengan satu perintah:
 
-   ```cmd
-   build.cmd
-   ```
+```cmd
+git clone https://github.com/narayaitsolution/usage-monitor.git
+cd usage-monitor\windows
+build.cmd install
+```
 
-   Hasilnya `windows\UsageTray.exe`. File `.exe` ini berdiri sendiri; boleh disalin ke folder mana pun atau ke komputer lain.
-3. Jalankan `UsageTray.exe`. Icon akan muncul di system tray.
+Icon langsung muncul di system tray, dan UsageTray otomatis berjalan setiap login Windows.
+
+**Hanya build** (tanpa auto-start dan tanpa menjalankan):
+
+```cmd
+cd usage-monitor\windows
+build.cmd
+```
+
+Hasilnya `windows\UsageTray.exe`. File `.exe` ini berdiri sendiri; boleh disalin ke folder mana pun atau ke komputer lain. Jalankan `UsageTray.exe` untuk memunculkan icon, lalu aktifkan auto-start lewat klik kanan → **Jalankan saat Windows start**.
+
+| Perintah | Build | Aktifkan auto-start | Jalankan aplikasi |
+|---|---|---|---|
+| `build.cmd` | ✅ | — | — |
+| `build.cmd install` | ✅ | ✅ | ✅ |
+
+> Auto-start menyimpan lokasi `UsageTray.exe` saat itu. Jika folder repository dipindah, jalankan `build.cmd install` lagi dari lokasi baru.
+
+### Update ke versi terbaru
+
+```cmd
+cd usage-monitor
+git pull
+cd windows
+build.cmd install
+```
+
+`build.cmd install` otomatis menghentikan UsageTray yang sedang berjalan sebelum build, lalu menjalankannya lagi. Jika memakai `build.cmd` biasa, keluar dulu dari aplikasi (klik kanan → **Keluar**), karena file `.exe` yang sedang berjalan tidak bisa ditimpa.
 
 > Icon baru biasanya tersembunyi di menu panah **^** di taskbar. Seret icon tersebut ke taskbar agar selalu terlihat.
 
