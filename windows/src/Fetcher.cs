@@ -76,10 +76,48 @@ namespace UsageTray
                 var h = new Dictionary<string, string>();
                 h["Authorization"] = "Bearer " + token;
                 h["anthropic-beta"] = "oauth-2025-04-20";
-                object root = Json.Parse(Http.Get("https://api.anthropic.com/api/oauth/usage", h));
+                // The server only lists "Limit resets" (cedar_ember.grants) for official clients,
+                // so this request identifies itself as claude-cli, like `/usage` does.
+                h["x-app"] = "cli";
+                h["User-Agent"] = ClaudeCliUserAgent;
+                object root = Json.Parse(Http.Get("https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1", h));
 
                 FillClaude(s.Five, Json.Obj(root, "five_hour"));
                 FillClaude(s.Week, Json.Obj(root, "seven_day"));
+
+                // "limits" also lists extra limits with their own reset time,
+                // e.g. kind "weekly_scoped" = weekly limit for one model (Fable).
+                var limits = Json.Get(root, "limits") as object[];
+                if (limits != null)
+                {
+                    foreach (object l in limits)
+                    {
+                        string kind = Json.Str(l, "kind");
+                        if (kind == "session" || kind == "weekly_all") continue; // same as five_hour / seven_day
+                        string group = Json.Str(l, "group");
+                        string label = group == "session" ? "5 jam" : group == "weekly" ? "7 hari" : (group ?? kind ?? "Limit");
+                        string scope = ScopeName(Json.Obj(l, "scope"));
+                        var w = new UsageWindow(scope != null ? label + " · " + scope : label);
+                        w.Percent = Json.Num(l, "percent");
+                        w.ResetAt = ParseIso(Json.Str(l, "resets_at"));
+                        s.MoreRows.Add(w);
+                    }
+                }
+
+                // "Limit resets" grants (same list as Settings -> Usage on claude.ai)
+                var grants = Json.Get(Json.Obj(root, "cedar_ember"), "grants") as object[];
+                if (grants != null)
+                {
+                    foreach (object gr in grants)
+                    {
+                        double? left = Json.Num(gr, "resets_left");
+                        if (!left.HasValue || left.Value <= 0) continue;
+                        s.Infos.Add("↺ " + GrantName(gr) + (left.Value > 1 ? " ×" + left.Value : "")
+                                    + GrantExpiry(ParseIso(Json.Str(gr, "ends_at")))
+                                    + (Json.Get(gr, "paused") is bool && (bool)Json.Get(gr, "paused") ? " (dijeda)"
+                                       : Json.Get(gr, "usable_now") is bool && !(bool)Json.Get(gr, "usable_now") ? " (belum bisa dipakai)" : ""));
+                    }
+                }
             }
             catch (HttpException ex)
             {
@@ -97,10 +135,77 @@ namespace UsageTray
         {
             if (o == null) return;
             w.Percent = Json.Num(o, "utilization");
-            string r = Json.Str(o, "resets_at");
+            w.ResetAt = ParseIso(Json.Str(o, "resets_at"));
+        }
+
+        // Identity sent with the Claude usage request (see FetchClaude). Version of claude-cli it mimics.
+        const string ClaudeCliUserAgent = "claude-cli/2.1.326 (external, cli)";
+
+        /// Name of a "Limit resets" grant from the limits it clears (same rule as claude-cli):
+        /// clears seven_day = Full reset, clears the Fable weekly allowance only = Fable reset.
+        static string GrantName(object grant)
+        {
+            var clears = Json.Get(grant, "clears") as object[] ?? new object[0];
+            var set = new HashSet<string>();
+            foreach (object c in clears) set.Add(Convert.ToString(c));
+            if (set.Contains("seven_day")) return "Full reset";
+            if (set.Contains("seven_day_overage_included")) return "Fable reset";
+            if (set.Contains("five_hour")) return "Reset 5 jam";
+            return "Limit reset";
+        }
+
+        /// ChatGPT "usage limit resets" with their expiry: "↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04".
+        /// Returns null when the request fails.
+        static List<string> CodexResetDetails(Dictionary<string, string> headers)
+        {
+            try
+            {
+                object root = Json.Parse(Http.Get("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", headers));
+                var list = new List<string>();
+                var credits = Json.Get(root, "credits") as object[];
+                if (credits == null) return list;
+                foreach (object c in credits)
+                {
+                    if (Json.Str(c, "status") != "available") continue;
+                    string title = Json.Str(c, "title");
+                    bool supported = !(Json.Get(c, "is_supported_by_plan") is bool) || (bool)Json.Get(c, "is_supported_by_plan");
+                    list.Add("↺ " + (string.IsNullOrEmpty(title) ? "Usage limit reset" : title)
+                             + GrantExpiry(ParseIso(Json.Str(c, "expires_at")))
+                             + (supported ? "" : " (tidak didukung paket)"));
+                }
+                return list;
+            }
+            catch { return null; }
+        }
+
+        static readonly CultureInfo IdCulture = new CultureInfo("id-ID");
+
+        static string GrantExpiry(DateTime? end)
+        {
+            if (!end.HasValue) return "";
+            DateTime e = end.Value.AddSeconds(30);
+            return " · s/d " + (e.Date == DateTime.Today ? "hari ini " + e.ToString("HH':'mm")
+                                                               : e.ToString("d MMM HH':'mm", IdCulture));
+        }
+
+        /// Display name of a limit's scope: {"model": {"display_name": "Fable"}, "surface": null}
+        static string ScopeName(Dictionary<string, object> scope)
+        {
+            if (scope == null) return null;
+            foreach (string key in new[] { "model", "surface" })
+            {
+                string n = Json.Str(Json.Obj(scope, key), "display_name");
+                if (!string.IsNullOrEmpty(n)) return n;
+            }
+            return null;
+        }
+
+        static DateTime? ParseIso(string r)
+        {
             DateTimeOffset dto;
             if (!string.IsNullOrEmpty(r) && DateTimeOffset.TryParse(r, CultureInfo.InvariantCulture, DateTimeStyles.None, out dto))
-                w.ResetAt = dto.LocalDateTime;
+                return dto.LocalDateTime;
+            return null;
         }
 
         public static ProviderStatus FetchCodex()
@@ -135,6 +240,24 @@ namespace UsageTray
                     target.Percent = Json.Num(w, "used_percent");
                     double? reset = Json.Num(w, "reset_at");
                     if (reset.HasValue) target.ResetAt = FromUnixMs(reset.Value * 1000);
+                }
+
+                // "Usage limit reset" credits: lets the user reset a reached limit early
+                var credits = Json.Obj(root, "rate_limit_reset_credits");
+                double? available = Json.Num(credits, "available_count");
+                if (available.HasValue)
+                {
+                    // Details (title + expiry per reset) come from a separate read-only endpoint;
+                    // only asked when there is something to show. Falls back to the count, like Codex CLI.
+                    // Never call ".../rate-limit-reset-credits/consume": that USES a reset.
+                    List<string> details = available.Value > 0 ? CodexResetDetails(h) : null;
+                    if (details != null && details.Count > 0) s.Infos.AddRange(details);
+                    else
+                    {
+                        double? usable = Json.Num(credits, "applicable_available_count");
+                        s.Infos.Add("↺ Usage limit reset: " + available.Value + " tersedia"
+                                 + (usable.HasValue && usable.Value > 0 ? " (bisa dipakai sekarang)" : ""));
+                    }
                 }
             }
             catch (HttpException ex)

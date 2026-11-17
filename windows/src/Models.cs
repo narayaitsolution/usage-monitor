@@ -16,8 +16,10 @@ namespace UsageTray
 {
     class UsageWindow
     {
+        public string Label;
         public double? Percent;
         public DateTime? ResetAt;   // local time
+        public UsageWindow(string label) { Label = label; }
     }
 
     class ProviderStatus
@@ -26,8 +28,19 @@ namespace UsageTray
         public string Plan;
         public string Account;
         public string Error;
-        public UsageWindow Five = new UsageWindow();
-        public UsageWindow Week = new UsageWindow();
+        public UsageWindow Five = new UsageWindow("5 jam");
+        public UsageWindow Week = new UsageWindow("7 hari");
+        /// Extra limits after 5h/7d, e.g. Claude's weekly limit for one model ("7 hari · Fable").
+        public List<UsageWindow> MoreRows = new List<UsageWindow>();
+        /// Extra info lines: Claude "Limit resets" grants, ChatGPT "usage limit reset" credits.
+        public List<string> Infos = new List<string>();
+
+        public List<UsageWindow> Rows()
+        {
+            var list = new List<UsageWindow> { Five, Week };
+            list.AddRange(MoreRows);
+            return list;
+        }
         public Color Accent;
         public bool RateLimited;   // server answered HTTP 429
         public string Note;        // shown under the rows, e.g. when displaying older data

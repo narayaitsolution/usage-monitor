@@ -30,7 +30,10 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 ## Fitur
 
 - **Icon di system tray / menu bar** berisi bar mini: 2 bar (5 jam & 7 hari) untuk setiap akun yang ditampilkan — Claude di atas, ChatGPT di bawah.
-- **Klik icon** untuk melihat detail: persentase pemakaian, progress bar, waktu reset ("Reset dalam 3 jam 12 mnt · 13:00"), jenis langganan, dan email akun.
+- **Klik icon** untuk melihat detail yang ringkas: satu baris per limit berisi persentase, progress bar, dan waktu reset (`↻ 2j 12m · 13:00`, `↻ 3h 2j · Kam 13:00` — h = hari, j = jam, m = menit), plus jenis langganan dan email akun.
+- **Claude: semua limit beserta waktu reset-nya**, termasuk limit tambahan dari server seperti limit mingguan khusus model (misalnya `7 hari · Fable`).
+- **Claude: Limit resets** — daftar jatah reset yang sama dengan *Settings → Usage* di claude.ai dan `/usage` di claude-cli, beserta batas berlakunya (`↺ Full reset · s/d 11 Des 05:00`, `↺ Fable reset · s/d hari ini 14:59`).
+- **ChatGPT: Usage limit resets** — daftar jatah reset yang tersedia beserta batas berlakunya, sama seperti `/usage` di Codex CLI (`↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04`). Jika detailnya gagal dimuat, ditampilkan jumlahnya saja (`↺ Usage limit reset: 2 tersedia`).
 - **Warna sesuai tingkat pemakaian** (sama untuk 5 jam & 7 hari, Claude & ChatGPT):
 
   | Pemakaian | Warna |
@@ -235,11 +238,14 @@ UsageTray hanya **membaca** token login yang sudah dibuat oleh CLI, lalu menanya
 
 | Akun | Kredensial yang dibaca | Endpoint |
 |---|---|---|
-| Claude | `~/.claude/.credentials.json` (macOS: Keychain `Claude Code-credentials`), email dari `~/.claude.json` | `GET https://api.anthropic.com/api/oauth/usage` |
-| ChatGPT | `~/.codex/auth.json` (atau `$CODEX_HOME/auth.json`) | `GET https://chatgpt.com/backend-api/wham/usage` |
+| Claude | `~/.claude/.credentials.json` (macOS: Keychain `Claude Code-credentials`), email dari `~/.claude.json` | `GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1` |
+| ChatGPT | `~/.codex/auth.json` (atau `$CODEX_HOME/auth.json`) | `GET https://chatgpt.com/backend-api/wham/usage`, dan `GET .../wham/rate-limit-reset-credits` (hanya jika ada jatah reset) |
+
+Aplikasi **hanya membaca**. Endpoint untuk *memakai* jatah reset (`.../rate-limit-reset-credits/consume`) tidak pernah dipanggil, jadi jatah reset kamu tidak akan terpakai oleh UsageTray.
 
 - Token **tidak pernah diubah, di-refresh, atau dikirim ke pihak lain**. Aplikasi tidak menulis ke file kredensial, sehingga tidak mengganggu sesi CLI.
 - Tidak ada telemetry atau server pihak ketiga.
+- **Request usage Claude mengaku sebagai claude-cli** (header `x-app: cli` dan `User-Agent: claude-cli/…`). Server Anthropic hanya mengirim daftar *Limit resets* ke aplikasi resminya, jadi tanpa header ini daftar tersebut kosong. Ini bukan cara yang didukung resmi oleh Anthropic: bisa berhenti bekerja sewaktu-waktu, dan pengguna menanggung risikonya sendiri. Versi claude-cli yang ditiru diatur di konstanta `ClaudeCliUserAgent` (Windows), `claudeCliUserAgent` (macOS), dan `CLAUDE_CLI_USER_AGENT` (Linux).
 - Jika token kedaluwarsa, cukup jalankan `claude` atau `codex` sekali; CLI akan memperbaruinya dan UsageTray pulih sendiri.
 
 > ⚠️ Kedua endpoint usage di atas **tidak didokumentasikan secara resmi** dan bisa berubah sewaktu-waktu tanpa pemberitahuan.

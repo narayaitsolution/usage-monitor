@@ -31,7 +31,11 @@ namespace UsageTray
             req.Accept = "application/json";
             req.UserAgent = "UsageTray/1.0";
             req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-            foreach (var kv in headers) req.Headers[kv.Key] = kv.Value;
+            foreach (var kv in headers)
+            {
+                if (string.Equals(kv.Key, "User-Agent", StringComparison.OrdinalIgnoreCase)) req.UserAgent = kv.Value;
+                else req.Headers[kv.Key] = kv.Value;
+            }
             try
             {
                 using (var resp = (HttpWebResponse)req.GetResponse())

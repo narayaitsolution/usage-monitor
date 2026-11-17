@@ -31,8 +31,10 @@ namespace UsageTray
                 foreach (var p in new[] { Fetcher.FetchClaude(), Fetcher.FetchCodex() })
                 {
                     sb.AppendLine(p.Name + " plan=" + p.Plan + " account=" + p.Account + " error=" + p.Error);
-                    sb.AppendLine("  5h: " + p.Five.Percent + "% reset " + p.Five.ResetAt + " | " + PopupForm.ResetText(p.Five.ResetAt));
-                    sb.AppendLine("  7d: " + p.Week.Percent + "% reset " + p.Week.ResetAt + " | " + PopupForm.ResetText(p.Week.ResetAt));
+                    foreach (var w in p.Rows())
+                        sb.AppendLine("  " + w.Label + ": " + w.Percent + "% | " + PopupForm.ResetText(w.ResetAt)
+                                      + " | " + PopupForm.ShortReset(w.ResetAt));
+                    foreach (string info in p.Infos) sb.AppendLine("  " + info);
                 }
                 File.WriteAllText(args[1], sb.ToString());
                 return;

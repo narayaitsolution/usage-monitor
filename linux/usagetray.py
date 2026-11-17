@@ -32,7 +32,8 @@ MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt
 
 # ---------------------------------------------------------------- data
 class UsageWindow:
-    def __init__(self):
+    def __init__(self, label):
+        self.label = label
         self.percent = None   # float
         self.reset_at = None  # aware datetime
 
@@ -43,11 +44,23 @@ class ProviderStatus:
         self.plan = None
         self.account = None
         self.error = None
-        self.five = UsageWindow()
-        self.week = UsageWindow()
+        self.five = UsageWindow("5 jam")
+        self.week = UsageWindow("7 hari")
+        self.more_rows = []        # extra limits, e.g. Claude's weekly limit for one model
+        self.infos = []            # extra lines: Claude "Limit resets", ChatGPT "usage limit reset" credits
         self.rate_limited = False  # server answered HTTP 429
         self.note = None           # shown under the rows, e.g. when displaying older data
         self.fetched_at = None
+
+    def rows(self):
+        return [self.five, self.week] + self.more_rows
+
+
+def parse_iso(s):
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
+    except ValueError:
+        return None
 
 
 class HttpError(Exception):
@@ -90,6 +103,48 @@ def claude_dir():
     return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(HOME, ".claude")
 
 
+# Identity sent with the Claude usage request (see fetch_claude). Version of claude-cli it mimics.
+CLAUDE_CLI_USER_AGENT = "claude-cli/2.1.326 (external, cli)"
+
+
+def grant_name(gr):
+    """Name of a "Limit resets" grant from the limits it clears (same rule as claude-cli)."""
+    clears = set(gr.get("clears") or [])
+    if "seven_day" in clears:
+        return "Full reset"
+    if "seven_day_overage_included" in clears:
+        return "Fable reset"
+    if "five_hour" in clears:
+        return "Reset 5 jam"
+    return "Limit reset"
+
+
+def grant_expiry(end):
+    if end is None:
+        return ""
+    e = end.astimezone() + timedelta(seconds=30)
+    if e.date() == datetime.now().date():
+        return " \u00B7 s/d hari ini " + e.strftime("%H:%M")
+    return " \u00B7 s/d %d %s %s" % (e.day, MONTHS_ID[e.month - 1], e.strftime("%H:%M"))
+
+
+def codex_reset_details(headers):
+    """ChatGPT "usage limit resets" with expiry: '↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04'.
+    Returns None when the request fails."""
+    try:
+        root = http_get("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", headers)
+    except Exception:
+        return None
+    lines = []
+    for c in root.get("credits") or []:
+        if c.get("status") != "available":
+            continue
+        lines.append("↺ %s%s%s" % (c.get("title") or "Usage limit reset",
+                                         grant_expiry(parse_iso(c.get("expires_at"))),
+                                         "" if c.get("is_supported_by_plan", True) else " (tidak didukung paket)"))
+    return lines
+
+
 def fetch_claude():
     s = ProviderStatus("Claude")
     try:
@@ -115,16 +170,38 @@ def fetch_claude():
         if exp and exp / 1000 < time.time():
             s.error = "Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh."
             return s
-        root = http_get("https://api.anthropic.com/api/oauth/usage",
-                        {"Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20"})
+        # The server only lists "Limit resets" (cedar_ember.grants) for official clients,
+        # so this request identifies itself as claude-cli, like `/usage` does.
+        root = http_get("https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1",
+                        {"Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
+                         "x-app": "cli", "User-Agent": CLAUDE_CLI_USER_AGENT})
         for key, w in (("five_hour", s.five), ("seven_day", s.week)):
             o = root.get(key) or {}
             w.percent = num(o.get("utilization"))
-            if o.get("resets_at"):
-                try:
-                    w.reset_at = datetime.fromisoformat(o["resets_at"].replace("Z", "+00:00"))
-                except ValueError:
-                    pass
+            w.reset_at = parse_iso(o.get("resets_at"))
+        # "limits" also lists extra limits with their own reset time,
+        # e.g. kind "weekly_scoped" = weekly limit for one model (Fable).
+        for lim in root.get("limits") or []:
+            kind = lim.get("kind")
+            if kind in ("session", "weekly_all"):
+                continue  # same as five_hour / seven_day
+            group = lim.get("group")
+            label = {"session": "5 jam", "weekly": "7 hari"}.get(group, group or kind or "Limit")
+            scope = lim.get("scope") or {}
+            name = next(((scope.get(k) or {}).get("display_name") for k in ("model", "surface")
+                         if (scope.get(k) or {}).get("display_name")), None)
+            w = UsageWindow(label + " · " + name if name else label)
+            w.percent = num(lim.get("percent"))
+            w.reset_at = parse_iso(lim.get("resets_at"))
+            s.more_rows.append(w)
+        # "Limit resets" grants (same list as Settings -> Usage on claude.ai)
+        for gr in (root.get("cedar_ember") or {}).get("grants") or []:
+            left = num(gr.get("resets_left")) or 0
+            if left <= 0:
+                continue
+            extra = " (dijeda)" if gr.get("paused") else " (belum bisa dipakai)" if gr.get("usable_now") is False else ""
+            s.infos.append("\u21BA %s%s%s%s" % (grant_name(gr), " \u00D7%d" % left if left > 1 else "",
+                                                 grant_expiry(parse_iso(gr.get("ends_at"))), extra))
     except HttpError as e:
         s.rate_limited = e.code == 429
         s.error = ("Dibatasi server (429). Dicoba lagi otomatis." if e.code == 429 else
@@ -168,6 +245,19 @@ def fetch_codex():
             reset = num(w.get("reset_at"))
             if reset:
                 target.reset_at = datetime.fromtimestamp(reset, tz=timezone.utc)
+        # "Usage limit reset" credits: lets the user reset a reached limit early
+        credits = root.get("rate_limit_reset_credits") or {}
+        available = num(credits.get("available_count"))
+        if available is not None:
+            # Details (title + expiry per reset) come from a separate read-only endpoint;
+            # only asked when there is something to show. Falls back to the count, like Codex CLI.
+            # Never call ".../rate-limit-reset-credits/consume": that USES a reset.
+            details = codex_reset_details(h) if available > 0 else None
+            if details:
+                s.infos.extend(details)
+            else:
+                usable = num(credits.get("applicable_available_count")) or 0
+                s.infos.append("\u21BA Usage limit reset: %d tersedia%s" % (available, " (bisa dipakai sekarang)" if usable > 0 else ""))
     except HttpError as e:
         s.rate_limited = e.code == 429
         s.error = ("Dibatasi server (429). Dicoba lagi otomatis." if e.code == 429 else
@@ -222,6 +312,27 @@ def reset_text(dt):
     else:
         when = "%s %d %s, %s" % (DAYS_ID[r.weekday()], r.day, MONTHS_ID[r.month - 1], r.strftime("%H:%M"))
     return "Reset dalam %s  ·  %s" % (d, when)
+
+
+def short_reset(dt):
+    """Compact reset label: '↻ 2j 12m · 13:00' / '↻ 3h 2j · Kam 13:00' (h = hari, j = jam, m = menit)."""
+    if dt is None:
+        return ""
+    local = dt.astimezone()
+    secs = (local - datetime.now().astimezone()).total_seconds()
+    if secs <= 0:
+        return "sudah reset"
+    days, rem = divmod(int(secs), 86400)
+    hours, rem = divmod(rem, 3600)
+    if days >= 1:
+        d = "%dh %dj" % (days, hours)
+    elif hours >= 1:
+        d = "%dj %dm" % (hours, rem // 60)
+    else:
+        d = "%dm" % max(1, -(-int(secs) // 60))
+    r = local + timedelta(seconds=30)
+    when = r.strftime("%H:%M") if r.date() == datetime.now().date() else "%s %s" % (DAYS_ID[r.weekday()], r.strftime("%H:%M"))
+    return "↻ %s · %s" % (d, when)
 
 
 def pct_text(p):
@@ -478,8 +589,8 @@ class TrayApp:
         for p in provs:
             st = self.data.get(p.id)
             if st and st.error is None:
-                self.check_alert(p, "5 jam", st.five)
-                self.check_alert(p, "7 hari", st.week)
+                for w in st.rows():
+                    self.check_alert(p, w.label, w)
         if self.pending:
             self.refresh()
         return False
@@ -527,10 +638,12 @@ class TrayApp:
             elif st.error:
                 label("    ⚠ " + st.error)
             else:
-                for name, w in (("5 jam ", st.five), ("7 hari", st.week)):
-                    label("    %s %s  %s  %s" % (level_dot(w.percent), name, text_bar(w.percent), pct_text(w.percent)))
-                    if w.reset_at:
-                        label("          " + reset_text(w.reset_at))
+                # one compact line per limit: 🟢 5 jam  ▰▰▱▱▱▱▱▱  40%   ↻ 26m · 09:40
+                for w in st.rows():
+                    label("  %s %s  %s  %s   %s" % (level_dot(w.percent), w.label, text_bar(w.percent, 8),
+                                                    pct_text(w.percent), short_reset(w.reset_at)))
+                for info in st.infos:
+                    label("  " + info)
                 if st.note:
                     label("    ⚠ " + st.note)
             menu.append(Gtk.SeparatorMenuItem())
@@ -584,8 +697,10 @@ def run_test():
     for prov in PROVIDERS:
         st = prov.fetch()
         print("%s plan=%s account=%s error=%s" % (prov.title, st.plan, st.account, st.error))
-        for name, w in (("5h", st.five), ("7d", st.week)):
-            print("  %s: %s %s | %s" % (name, pct_text(w.percent), text_bar(w.percent), reset_text(w.reset_at)))
+        for w in st.rows():
+            print("  %s: %s %s | %s" % (w.label, pct_text(w.percent), text_bar(w.percent, 8), short_reset(w.reset_at)))
+        for info in st.infos:
+            print("  " + info)
 
 
 def main():

@@ -7,6 +7,7 @@ import UserNotifications
 // MARK: - Model
 
 struct UsageWindow {
+    var label = ""
     var percent: Double?
     var resetAt: Date?
 }
@@ -16,8 +17,11 @@ struct ProviderStatus {
     var plan: String?
     var account: String?
     var error: String?
-    var five = UsageWindow()
-    var week = UsageWindow()
+    var five = UsageWindow(label: "5 jam")
+    var week = UsageWindow(label: "7 hari")
+    var moreRows: [UsageWindow] = []   // extra limits, e.g. Claude's weekly limit for one model
+    var infos: [String] = []           // extra lines: Claude "Limit resets", ChatGPT "usage limit reset" credits
+    var rows: [UsageWindow] { [five, week] + moreRows }
     var rateLimited = false   // server answered HTTP 429
     var note: String?         // shown under the rows, e.g. when displaying older data
     var fetchedAt: Date?
@@ -109,6 +113,47 @@ func claudeCredentials() -> [String: Any]? {
     return readJSONFile(claudeConfigDir().appendingPathComponent(".credentials.json"))
 }
 
+/// Identity sent with the Claude usage request (see fetchClaude). Version of claude-cli it mimics.
+let claudeCliUserAgent = "claude-cli/2.1.326 (external, cli)"
+
+/// Name of a "Limit resets" grant from the limits it clears (same rule as claude-cli).
+func grantName(_ gr: [String: Any]) -> String {
+    let clears = Set(gr["clears"] as? [String] ?? [])
+    if clears.contains("seven_day") { return "Full reset" }
+    if clears.contains("seven_day_overage_included") { return "Fable reset" }
+    if clears.contains("five_hour") { return "Reset 5 jam" }
+    return "Limit reset"
+}
+
+func grantExpiry(_ end: Date?) -> String {
+    guard let end = end else { return "" }
+    let e = end.addingTimeInterval(30)
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "id_ID")
+    if Calendar.current.isDateInToday(e) {
+        f.dateFormat = "HH:mm"
+        return " · s/d hari ini \(f.string(from: e))"
+    }
+    f.dateFormat = "d MMM HH:mm"
+    return " · s/d \(f.string(from: e))"
+}
+
+/// ChatGPT "usage limit resets" with expiry: "↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04".
+/// Returns nil when the request fails.
+func codexResetDetails(_ headers: [String: String]) async -> [String]? {
+    guard let root = try? await httpGet("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", headers) else {
+        return nil
+    }
+    var lines: [String] = []
+    for c in root["credits"] as? [[String: Any]] ?? [] where (c["status"] as? String) == "available" {
+        let title = (c["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Usage limit reset"
+        let end = (c["expires_at"] as? String).flatMap(parseISODate)
+        let supported = (c["is_supported_by_plan"] as? Bool) ?? true
+        lines.append("↺ " + title + grantExpiry(end) + (supported ? "" : " (tidak didukung paket)"))
+    }
+    return lines
+}
+
 func fetchClaude() async -> ProviderStatus {
     var s = ProviderStatus(name: "Claude")
     guard let creds = claudeCredentials(), let oauth = creds["claudeAiOauth"] as? [String: Any] else {
@@ -135,14 +180,41 @@ func fetchClaude() async -> ProviderStatus {
         return s
     }
     do {
-        let root = try await httpGet("https://api.anthropic.com/api/oauth/usage",
-                                     ["Authorization": "Bearer \(token)", "anthropic-beta": "oauth-2025-04-20"])
+        // The server only lists "Limit resets" (cedar_ember.grants) for official clients,
+        // so this request identifies itself as claude-cli, like `/usage` does.
+        let root = try await httpGet("https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1",
+                                     ["Authorization": "Bearer \(token)", "anthropic-beta": "oauth-2025-04-20",
+                                      "x-app": "cli", "User-Agent": claudeCliUserAgent])
         for (key, isFive) in [("five_hour", true), ("seven_day", false)] {
             guard let o = root[key] as? [String: Any] else { continue }
-            var w = UsageWindow()
+            var w = UsageWindow(label: isFive ? "5 jam" : "7 hari")
             w.percent = num(o["utilization"])
             if let r = o["resets_at"] as? String { w.resetAt = parseISODate(r) }
             if isFive { s.five = w } else { s.week = w }
+        }
+        // "limits" also lists extra limits with their own reset time,
+        // e.g. kind "weekly_scoped" = weekly limit for one model (Fable).
+        for lim in root["limits"] as? [[String: Any]] ?? [] {
+            let kind = lim["kind"] as? String
+            if kind == "session" || kind == "weekly_all" { continue } // same as five_hour / seven_day
+            let group = lim["group"] as? String
+            let base = group == "session" ? "5 jam" : group == "weekly" ? "7 hari" : (group ?? kind ?? "Limit")
+            let scope = lim["scope"] as? [String: Any] ?? [:]
+            let name = ["model", "surface"].compactMap { (scope[$0] as? [String: Any])?["display_name"] as? String }.first
+            var w = UsageWindow(label: name.map { base + " · " + $0 } ?? base)
+            w.percent = num(lim["percent"])
+            if let r = lim["resets_at"] as? String { w.resetAt = parseISODate(r) }
+            s.moreRows.append(w)
+        }
+        // "Limit resets" grants (same list as Settings -> Usage on claude.ai)
+        let grants = (root["cedar_ember"] as? [String: Any])?["grants"] as? [[String: Any]] ?? []
+        for gr in grants {
+            let left = Int(num(gr["resets_left"]) ?? 0)
+            if left <= 0 { continue }
+            let extra = (gr["paused"] as? Bool) == true ? " (dijeda)"
+                : (gr["usable_now"] as? Bool) == false ? " (belum bisa dipakai)" : ""
+            let end = (gr["ends_at"] as? String).flatMap(parseISODate)
+            s.infos.append("↺ " + grantName(gr) + (left > 1 ? " ×\(left)" : "") + grantExpiry(end) + extra)
         }
     } catch {
         s.error = errorText(error, cli: "claude")
@@ -179,12 +251,25 @@ func fetchCodex() async -> ProviderStatus {
         let rl = root["rate_limit"] as? [String: Any] ?? [:]
         for key in ["primary_window", "secondary_window"] {
             guard let o = rl[key] as? [String: Any] else { continue }
-            var w = UsageWindow()
-            w.percent = num(o["used_percent"])
-            if let r = num(o["reset_at"]) { w.resetAt = Date(timeIntervalSince1970: r) }
             let isFive: Bool
             if let secs = num(o["limit_window_seconds"]) { isFive = secs <= 86400 } else { isFive = key == "primary_window" }
+            var w = UsageWindow(label: isFive ? "5 jam" : "7 hari")
+            w.percent = num(o["used_percent"])
+            if let r = num(o["reset_at"]) { w.resetAt = Date(timeIntervalSince1970: r) }
             if isFive { s.five = w } else { s.week = w }
+        }
+        // "Usage limit reset" credits: lets the user reset a reached limit early
+        if let credits = root["rate_limit_reset_credits"] as? [String: Any], let available = num(credits["available_count"]) {
+            // Details (title + expiry per reset) come from a separate read-only endpoint;
+            // only asked when there is something to show. Falls back to the count, like Codex CLI.
+            // Never call ".../rate-limit-reset-credits/consume": that USES a reset.
+            let details = available > 0 ? await codexResetDetails(headers) : nil
+            if let details = details, !details.isEmpty {
+                s.infos.append(contentsOf: details)
+            } else {
+                let usable = num(credits["applicable_available_count"]) ?? 0
+                s.infos.append("↺ Usage limit reset: \(Int(available)) tersedia" + (usable > 0 ? " (bisa dipakai sekarang)" : ""))
+            }
         }
     } catch {
         s.error = errorText(error, cli: "codex")
@@ -205,6 +290,24 @@ func levelNSColor(_ pct: Double) -> NSColor {
 func levelColor(_ pct: Double) -> Color { Color(nsColor: levelNSColor(pct)) }
 
 func pctText(_ p: Double?) -> String { p.map { "\(Int($0.rounded()))%" } ?? "-" }
+
+/// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit)
+func shortReset(_ date: Date?, now: Date = Date()) -> String {
+    guard let date = date else { return "" }
+    let secs = date.timeIntervalSince(now)
+    if secs <= 0 { return "sudah reset" }
+    let total = Int(secs)
+    let days = total / 86400, hours = (total % 86400) / 3600, mins = (total % 3600) / 60
+    let d: String
+    if days >= 1 { d = "\(days)h \(hours)j" }
+    else if hours >= 1 { d = "\(hours)j \(mins)m" }
+    else { d = "\(max(1, Int((secs / 60).rounded(.up))))m" }
+    let r = date.addingTimeInterval(30)
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "id_ID")
+    f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "HH:mm" : "EEE HH:mm"
+    return "↻ \(d) · \(f.string(from: r))"
+}
 
 func resetText(_ date: Date?, now: Date = Date()) -> String {
     guard let date = date else { return "" }
@@ -392,33 +495,35 @@ final class Store: ObservableObject {
 
 // MARK: - Views
 
+/// One compact row:  label .......... ↻ 2j 12m · 13:00   38%
+///                   [=====-------------------------------]
 struct UsageRow: View {
-    let label: String
     let window: UsageWindow
     let now: Date
 
     var body: some View {
         let pct = window.percent
         let color = pct.map(levelColor) ?? Color.gray
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(label).font(.system(size: 12)).foregroundColor(.secondary)
-                Spacer()
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(window.label).font(.system(size: 11.5)).foregroundColor(.secondary)
+                Spacer(minLength: 4)
+                Text(shortReset(window.resetAt, now: now)).font(.system(size: 10.5)).foregroundColor(.secondary)
                 Text(pctText(pct))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor((pct ?? 0) >= 50 ? color : .primary)
+                    .frame(minWidth: 32, alignment: .trailing)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.gray.opacity(0.3))
                     if let p = pct, p > 0 {
                         Capsule().fill(color)
-                            .frame(width: max(8, geo.size.width * CGFloat(min(100, p)) / 100))
+                            .frame(width: max(5, geo.size.width * CGFloat(min(100, p)) / 100))
                     }
                 }
             }
-            .frame(height: 8)
-            Text(resetText(window.resetAt, now: now)).font(.system(size: 11)).foregroundColor(.secondary)
+            .frame(height: 5)
         }
     }
 }
@@ -431,7 +536,7 @@ struct ProviderCard: View {
     let now: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Circle().fill(accent).frame(width: 8, height: 8)
                 Text(title).font(.system(size: 13, weight: .semibold))
@@ -453,8 +558,12 @@ struct ProviderCard: View {
                     Text(err).font(.system(size: 12)).foregroundColor(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    UsageRow(label: "5 jam", window: s.five, now: now)
-                    UsageRow(label: "7 hari", window: s.week, now: now)
+                    ForEach(Array(s.rows.enumerated()), id: \.offset) { _, row in
+                        UsageRow(window: row, now: now)
+                    }
+                    ForEach(s.infos, id: \.self) { info in
+                        Text(info).font(.system(size: 10.5)).foregroundColor(.secondary)
+                    }
                     if let note = s.note {
                         Text("⚠ " + note).font(.system(size: 11)).foregroundColor(.orange)
                     }
@@ -463,10 +572,10 @@ struct ProviderCard: View {
                 Text(busy ? "Memuat…" : "Belum ada data").font(.system(size: 12)).foregroundColor(.secondary)
             }
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.06))
-        .cornerRadius(8)
+        .cornerRadius(7)
     }
 }
 
@@ -476,14 +585,14 @@ struct PopupView: View {
     var footer: String {
         guard let u = store.updated else { return "Belum ada data" }
         let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return "Diperbarui \(f.string(from: u))  ·  otomatis tiap 5 menit"
+        f.dateFormat = "HH:mm"
+        return "Diperbarui \(f.string(from: u))  ·  tiap 5 menit"
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("Usage Monitor").font(.system(size: 14, weight: .semibold))
+                Text("Usage Monitor").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button(store.busy ? "Memuat…" : "↻ Refresh") { store.refresh() }
                     .disabled(store.busy)
@@ -502,8 +611,8 @@ struct PopupView: View {
                 Button("Keluar") { NSApp.terminate(nil) }
             }
         }
-        .padding(14)
-        .frame(width: 340)
+        .padding(10)
+        .frame(width: 300)
     }
 }
 
@@ -667,8 +776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = shown.map { tipLine($0.title, store.data[$0.id]) }.joined(separator: "\n")
         for def in shown {
             guard let p = store.data[def.id], p.error == nil else { continue }
-            checkAlert(p, "5 jam", p.five)
-            checkAlert(p, "7 hari", p.week)
+            for w in p.rows { checkAlert(p, w.label, w) }
         }
     }
 
@@ -697,8 +805,8 @@ struct UsageTrayMain {
                 print("installed: " + (inst.isEmpty ? "(none)" : inst.joined(separator: ",")))
                 for p in [await fetchClaude(), await fetchCodex()] {
                     print("\(p.name) plan=\(p.plan ?? "-") account=\(p.account ?? "-") error=\(p.error ?? "-")")
-                    print("  5h: \(pctText(p.five.percent)) | \(resetText(p.five.resetAt))")
-                    print("  7d: \(pctText(p.week.percent)) | \(resetText(p.week.resetAt))")
+                    for w in p.rows { print("  \(w.label): \(pctText(w.percent)) | \(shortReset(w.resetAt))") }
+                    for info in p.infos { print("  " + info) }
                 }
                 exit(0)
             }

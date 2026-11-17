@@ -37,7 +37,9 @@ namespace UsageTray
         float s = 1f;
         readonly System.Windows.Forms.Timer tick;
 
-        const int W = 340, Pad = 14, HeaderH = 44, FooterH = 30, CardGap = 10;
+        // Compact layout (logical pixels at 96 DPI)
+        const int W = 300, Pad = 10, HeaderH = 36, FooterH = 24, CardGap = 8;
+        const int CardTop = 9, CardHeader = 20, RowH = 30, LineH = 17, CardBottom = 5;
 
         public PopupForm()
         {
@@ -110,8 +112,24 @@ namespace UsageTray
 
         static int CardH(ProviderStatus p)
         {
-            if (p == null || p.Error != null) return 12 + 24 + 40 + 6;
-            return 12 + 24 + 2 * 58 + 4 + (p.Note != null ? 20 : 0);
+            if (p == null || p.Error != null) return CardTop + CardHeader + 34 + CardBottom;
+            return CardTop + CardHeader + p.Rows().Count * RowH
+                   + p.Infos.Count * LineH + (p.Note != null ? LineH : 0) + CardBottom;
+        }
+
+        /// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit)
+        public static string ShortReset(DateTime? t)
+        {
+            if (!t.HasValue) return "";
+            TimeSpan sp = t.Value - DateTime.Now;
+            if (sp.TotalSeconds <= 0) return "sudah reset";
+            string d;
+            if (sp.TotalDays >= 1) d = (int)sp.TotalDays + "h " + sp.Hours + "j";
+            else if (sp.TotalHours >= 1) d = (int)sp.TotalHours + "j " + sp.Minutes + "m";
+            else d = Math.Max(1, (int)Math.Ceiling(sp.TotalMinutes)) + "m";
+            DateTime r = t.Value.AddSeconds(30);
+            string when = r.Date == DateTime.Today ? r.ToString("HH':'mm") : r.ToString("ddd HH':'mm", Id);
+            return "↻ " + d + " · " + when;
         }
 
         public static Color LevelColor(double pct, Color accent)
@@ -158,16 +176,16 @@ namespace UsageTray
 
             using (var pen = new Pen(Border)) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
 
-            using (var title = new Font("Segoe UI Semibold", F(14), GraphicsUnit.Pixel))
-            using (var small = new Font("Segoe UI", F(12), GraphicsUnit.Pixel))
+            using (var title = new Font("Segoe UI Semibold", F(13), GraphicsUnit.Pixel))
+            using (var small = new Font("Segoe UI", F(11.5f), GraphicsUnit.Pixel))
             using (var fg = new SolidBrush(Fg))
             using (var muted = new SolidBrush(Muted))
             {
-                g.DrawString("Usage Monitor", title, fg, F(Pad), F(14));
+                g.DrawString("Usage Monitor", title, fg, F(Pad), F(10));
 
                 string rt = busy ? "Memuat…" : "↻ Refresh";
                 SizeF rs = g.MeasureString(rt, small);
-                refreshRect = new RectangleF(F(W - Pad) - rs.Width - F(8), F(10), rs.Width + F(16), F(24));
+                refreshRect = new RectangleF(F(W - Pad) - rs.Width - F(8), F(7), rs.Width + F(16), F(22));
                 if (hoverRefresh && !busy)
                     using (var hb = new SolidBrush(Color.FromArgb(60, 60, 60)))
                     using (var path = Round(refreshRect, F(6))) g.FillPath(hb, path);
@@ -181,10 +199,10 @@ namespace UsageTray
                 }
 
                 string foot = updated.HasValue
-                    ? "Diperbarui " + updated.Value.ToString("HH:mm:ss") + "  ·  otomatis tiap 5 menit"
+                    ? "Diperbarui " + updated.Value.ToString("HH:mm") + "  ·  tiap 5 menit"
                     : "Belum ada data";
-                using (var tiny = new Font("Segoe UI", F(11), GraphicsUnit.Pixel))
-                    g.DrawString(foot, tiny, muted, F(Pad), y + F(8));
+                using (var tiny = new Font("Segoe UI", F(10.5f), GraphicsUnit.Pixel))
+                    g.DrawString(foot, tiny, muted, F(Pad), y + F(5));
             }
         }
 
@@ -193,26 +211,26 @@ namespace UsageTray
             float x = F(Pad), w = F(W - 2 * Pad), h = F(CardH(p));
             var rect = new RectangleF(x, y, w, h);
             using (var cb = new SolidBrush(Card))
-            using (var path = Round(rect, F(8))) g.FillPath(cb, path);
+            using (var path = Round(rect, F(7))) g.FillPath(cb, path);
 
-            float ix = x + F(12), iw = w - F(24), iy = y + F(12);
-            using (var nameF = new Font("Segoe UI Semibold", F(13), GraphicsUnit.Pixel))
-            using (var lbl = new Font("Segoe UI", F(12), GraphicsUnit.Pixel))
-            using (var pctF = new Font("Segoe UI Semibold", F(13), GraphicsUnit.Pixel))
-            using (var tiny = new Font("Segoe UI", F(11), GraphicsUnit.Pixel))
+            float ix = x + F(10), iw = w - F(20), iy = y + F(CardTop);
+            using (var nameF = new Font("Segoe UI Semibold", F(12.5f), GraphicsUnit.Pixel))
+            using (var lbl = new Font("Segoe UI", F(11.5f), GraphicsUnit.Pixel))
+            using (var pctF = new Font("Segoe UI Semibold", F(12), GraphicsUnit.Pixel))
+            using (var tiny = new Font("Segoe UI", F(10.5f), GraphicsUnit.Pixel))
             using (var fg = new SolidBrush(Fg))
             using (var muted = new SolidBrush(Muted))
             using (var dot = new SolidBrush(accent))
             {
-                g.FillEllipse(dot, ix, iy + F(5), F(8), F(8));
-                g.DrawString(title, nameF, fg, ix + F(13), iy);
-                float nx = ix + F(13) + g.MeasureString(title, nameF).Width;
+                g.FillEllipse(dot, ix, iy + F(5), F(7), F(7));
+                g.DrawString(title, nameF, fg, ix + F(11), iy);
+                float nx = ix + F(11) + g.MeasureString(title, nameF).Width;
 
                 if (p != null && !string.IsNullOrEmpty(p.Plan))
                 {
                     string plan = p.Plan.ToUpperInvariant();
                     SizeF ps = g.MeasureString(plan, tiny);
-                    var pr = new RectangleF(nx + F(2), iy + F(2), ps.Width + F(6), F(16));
+                    var pr = new RectangleF(nx + F(2), iy + F(2), ps.Width + F(6), F(15));
                     using (var pb = new SolidBrush(Color.FromArgb(70, accent)))
                     using (var pp = Round(pr, F(4))) g.FillPath(pb, pp);
                     g.DrawString(plan, tiny, fg, pr.X + F(3), pr.Y + (pr.Height - ps.Height) / 2);
@@ -224,20 +242,25 @@ namespace UsageTray
                     g.DrawString(p.Account, tiny, muted, new RectangleF(nx + F(8), iy + F(2), ix + iw - nx - F(8), F(18)), sf);
                 }
 
-                iy += F(24);
+                iy += F(CardHeader);
                 if (p == null)
                 {
-                    g.DrawString(busy ? "Memuat…" : "Belum ada data", lbl, muted, ix, iy + F(8));
+                    g.DrawString(busy ? "Memuat…" : "Belum ada data", lbl, muted, ix, iy + F(6));
                 }
                 else if (p.Error != null)
                 {
                     using (var eb = new SolidBrush(ErrColor))
-                        g.DrawString(p.Error, lbl, eb, new RectangleF(ix, iy + F(2), iw, F(40)));
+                        g.DrawString(p.Error, lbl, eb, new RectangleF(ix, iy + F(2), iw, F(34)));
                 }
                 else
                 {
-                    iy = DrawRow(g, "5 jam", p.Five, accent, ix, iw, iy, lbl, pctF, tiny, fg, muted);
-                    iy = DrawRow(g, "7 hari", p.Week, accent, ix, iw, iy, lbl, pctF, tiny, fg, muted);
+                    foreach (var row in p.Rows())
+                        iy = DrawRow(g, row, accent, ix, iw, iy, lbl, pctF, tiny, fg, muted);
+                    foreach (string info in p.Infos)
+                    {
+                        g.DrawString(info, tiny, muted, ix - F(2), iy);
+                        iy += F(LineH);
+                    }
                     if (p.Note != null)
                         using (var nb = new SolidBrush(Color.FromArgb(240, 170, 90)))
                             g.DrawString("⚠ " + p.Note, tiny, nb, ix - F(2), iy);
@@ -246,17 +269,23 @@ namespace UsageTray
             return y + h;
         }
 
-        float DrawRow(Graphics g, string label, UsageWindow u, Color accent, float x, float w, float y,
+        /// One compact row:  label .......... ↻ 2j 12m · 13:00   38%
+        ///                   [=====-------------------------------]
+        float DrawRow(Graphics g, UsageWindow u, Color accent, float x, float w, float y,
                       Font lbl, Font pctF, Font tiny, Brush fg, Brush muted)
         {
-            g.DrawString(label, lbl, muted, x - F(2), y + F(2));
+            g.DrawString(u.Label, lbl, muted, x - F(2), y);
             string pct = u.Percent.HasValue ? Math.Round(u.Percent.Value) + "%" : "-";
             SizeF ps = g.MeasureString(pct, pctF);
             Color lc = u.Percent.HasValue ? LevelColor(u.Percent.Value, accent) : Muted;
+            float px = x + w - ps.Width + F(3);
             using (var pb = new SolidBrush(u.Percent.HasValue && u.Percent.Value >= 50 ? lc : Fg))
-                g.DrawString(pct, pctF, pb, x + w - ps.Width + F(2), y);
+                g.DrawString(pct, pctF, pb, px, y - F(1));
+            string reset = ShortReset(u.ResetAt);
+            SizeF rs = g.MeasureString(reset, tiny);
+            g.DrawString(reset, tiny, muted, px - rs.Width - F(2), y + F(1));
 
-            float by = y + F(22), bh = F(8);
+            float by = y + F(17), bh = F(5);
             var track = new RectangleF(x, by, w, bh);
             using (var tb = new SolidBrush(Track))
             using (var tp = Round(track, bh / 2)) g.FillPath(tb, tp);
@@ -266,8 +295,7 @@ namespace UsageTray
                 using (var fb = new SolidBrush(lc))
                 using (var fp = Round(new RectangleF(x, by, fw, bh), bh / 2)) g.FillPath(fb, fp);
             }
-            g.DrawString(ResetText(u.ResetAt), tiny, muted, x - F(2), by + bh + F(3));
-            return y + F(58);
+            return y + F(RowH);
         }
 
         static GraphicsPath Round(RectangleF r, float rad)

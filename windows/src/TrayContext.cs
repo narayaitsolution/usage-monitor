@@ -256,8 +256,7 @@ namespace UsageTray
         {
             var p = Get(d);
             if (p == null || p.Error != null) return;
-            CheckAlert(d, "5 jam", p.Five);
-            CheckAlert(d, "7 hari", p.Week);
+            foreach (var w in p.Rows()) CheckAlert(d, w.Label, w);
         }
 
         void CheckAlert(ProviderDef d, string label, UsageWindow w)

@@ -18,7 +18,7 @@ namespace UsageTray
     {
         static readonly JavaScriptSerializer Ser = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         public static object Parse(string s) { return Ser.DeserializeObject(s); }
-        static object Get(object o, string k)
+        public static object Get(object o, string k)
         {
             var d = o as Dictionary<string, object>;
             object v;
