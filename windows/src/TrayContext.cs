@@ -8,13 +8,12 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace UsageTray
+namespace UsageMonitor
 {
     class TrayContext : ApplicationContext
     {
-        const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string RunName = "UsageTray";
-        const string SettingsKey = @"Software\UsageTray";
+        const string RunKey = Settings.RunKey;
+        const string RunName = Settings.RunName;
         const int RefreshMs = 5 * 60 * 1000;
 
         readonly NotifyIcon tray;
@@ -31,6 +30,8 @@ namespace UsageTray
         IntPtr currentHIcon = IntPtr.Zero;
         DateTime? lastUpdated;
         bool busy, pendingRefresh, keepMenuOpen;
+        AboutForm about;
+        UpdateForm updateForm;
 
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
 
@@ -41,6 +42,7 @@ namespace UsageTray
 
             popup = new PopupForm();
             popup.RefreshRequested += delegate { RefreshAsync(); };
+            popup.InfoRequested += delegate { ShowAbout(); };
 
             menu = new ContextMenuStrip();
             menu.Items.Add("Tampilkan usage", null, delegate { TogglePopup(); });
@@ -53,6 +55,7 @@ namespace UsageTray
             startupItem = new ToolStripMenuItem("Jalankan saat Windows start", null, delegate { ToggleStartup(); });
             startupItem.Checked = IsStartupEnabled();
             menu.Items.Add(startupItem);
+            menu.Items.Add("Tentang && update…", null, delegate { ShowAbout(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Keluar", null, delegate { ExitApp(); });
             BuildProviderItems();
@@ -83,6 +86,49 @@ namespace UsageTray
             timer.Tick += delegate { installed = Providers.Installed(); RefreshAsync(); };
             timer.Start();
             RefreshAsync();
+
+            // Check GitHub for a newer version shortly after start up
+            var once = new System.Windows.Forms.Timer { Interval = 4000 };
+            once.Tick += delegate { once.Stop(); once.Dispose(); CheckUpdateInBackground(); };
+            once.Start();
+        }
+
+        // ------------------------------------------------------------ update & about
+        void CheckUpdateInBackground()
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                ReleaseInfo r;
+                try { r = Updater.FetchLatest(); }
+                catch { return; } // offline or GitHub unavailable: try again next start
+                if (!Updater.IsNewer(r) || Updater.IsSkipped(r)) return;
+                try { popup.BeginInvoke((MethodInvoker)delegate { ShowUpdate(r); }); } catch { }
+            });
+        }
+
+        void ShowUpdate(ReleaseInfo r)
+        {
+            if (updateForm != null && !updateForm.IsDisposed)
+            {
+                if (Updater.Compare(updateForm.Release.Version, r.Version) == 0) { updateForm.Activate(); return; }
+                updateForm.Close();
+            }
+            updateForm = new UpdateForm(r);
+            updateForm.ExitRequested += delegate { ExitApp(); };
+            updateForm.Show();
+            updateForm.Activate();
+        }
+
+        void ShowAbout()
+        {
+            popup.Hide();
+            if (about == null || about.IsDisposed)
+            {
+                about = new AboutForm();
+                about.UpdateFound += delegate(ReleaseInfo r) { about.Close(); ShowUpdate(r); };
+            }
+            about.Show();
+            about.Activate();
         }
 
         // ------------------------------------------------------------ provider selection
@@ -126,26 +172,14 @@ namespace UsageTray
         HashSet<string> LoadHidden()
         {
             var set = new HashSet<string>();
-            try
-            {
-                using (var k = Registry.CurrentUser.OpenSubKey(SettingsKey))
-                {
-                    string v = k == null ? null : k.GetValue("HiddenProviders") as string;
-                    if (!string.IsNullOrEmpty(v)) foreach (string id in v.Split(',')) set.Add(id.Trim());
-                }
-            }
-            catch { }
+            string v = Settings.Get("HiddenProviders");
+            if (!string.IsNullOrEmpty(v)) foreach (string id in v.Split(',')) set.Add(id.Trim());
             return set;
         }
 
         void SaveHidden()
         {
-            try
-            {
-                using (var k = Registry.CurrentUser.CreateSubKey(SettingsKey))
-                    k.SetValue("HiddenProviders", string.Join(",", hidden.ToArray()));
-            }
-            catch { }
+            Settings.Set("HiddenProviders", string.Join(",", hidden.ToArray()));
         }
 
         // ------------------------------------------------------------ popup & refresh
@@ -351,6 +385,8 @@ namespace UsageTray
         void ExitApp()
         {
             timer.Stop();
+            if (about != null && !about.IsDisposed) about.Close();
+            if (updateForm != null && !updateForm.IsDisposed) updateForm.Close();
             tray.Visible = false;
             tray.Dispose();
             if (currentHIcon != IntPtr.Zero) DestroyIcon(currentHIcon);

@@ -12,11 +12,12 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace UsageTray
+namespace UsageMonitor
 {
     class PopupForm : Form
     {
         public event EventHandler RefreshRequested;
+        public event EventHandler InfoRequested;
 
         static readonly Color Bg = Color.FromArgb(32, 32, 32);
         static readonly Color Card = Color.FromArgb(44, 44, 44);
@@ -31,8 +32,9 @@ namespace UsageTray
         List<ProviderStatus> statuses = new List<ProviderStatus>();
         DateTime? updated;
         bool busy;
-        RectangleF refreshRect;
-        bool hoverRefresh;
+        RectangleF refreshRect, infoRect;
+        int hover;   // 0 none, 1 refresh, 2 info
+        readonly ToolTip tip = new ToolTip();
         int hiddenAt;
         float s = 1f;
         readonly System.Windows.Forms.Timer tick;
@@ -158,14 +160,53 @@ namespace UsageTray
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool h = refreshRect.Contains(e.Location);
-            if (h != hoverRefresh) { hoverRefresh = h; Cursor = h ? Cursors.Hand : Cursors.Default; Invalidate(); }
+            int h = refreshRect.Contains(e.Location) ? 1 : infoRect.Contains(e.Location) ? 2 : 0;
+            if (h == hover) return;
+            hover = h;
+            Cursor = h != 0 ? Cursors.Hand : Cursors.Default;
+            tip.SetToolTip(this, h == 1 ? (busy ? "Memuat…" : "Refresh") : h == 2 ? "Tentang & update" : "");
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (hover != 0) { hover = 0; Cursor = Cursors.Default; tip.SetToolTip(this, ""); Invalidate(); }
         }
 
         protected override void OnMouseClick(MouseEventArgs e)
         {
             base.OnMouseClick(e);
             if (refreshRect.Contains(e.Location) && !busy && RefreshRequested != null) RefreshRequested(this, EventArgs.Empty);
+            else if (infoRect.Contains(e.Location) && InfoRequested != null) InfoRequested(this, EventArgs.Empty);
+        }
+
+        /// Header icon buttons, right to left: (i) info, then the refresh arrow.
+        void DrawHeaderButtons(Graphics g)
+        {
+            float bw = F(26), bh = F(24), top = F(6);
+            infoRect = new RectangleF(F(W - Pad + 4) - bw, top, bw, bh);
+            refreshRect = new RectangleF(infoRect.X - bw - F(2), top, bw, bh);
+            using (var hb = new SolidBrush(Color.FromArgb(60, 60, 60)))
+            {
+                if (hover == 1 && !busy) using (var p = Round(refreshRect, F(6))) g.FillPath(hb, p);
+                if (hover == 2) using (var p = Round(infoRect, F(6))) g.FillPath(hb, p);
+            }
+            using (var sym = new Font("Segoe UI Symbol", F(15), GraphicsUnit.Pixel))
+            using (var br = new SolidBrush(busy ? Muted : Fg))
+            using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                g.DrawString("↻", sym, br, new RectangleF(refreshRect.X, refreshRect.Y - F(1), refreshRect.Width, refreshRect.Height), sf);
+
+            // (i): circle outline, dot and stem
+            float d = F(14), cx = infoRect.X + infoRect.Width / 2, cy = infoRect.Y + infoRect.Height / 2;
+            using (var pen = new Pen(Fg, F(1.4f)))
+                g.DrawEllipse(pen, cx - d / 2, cy - d / 2, d, d);
+            using (var b = new SolidBrush(Fg))
+            {
+                float dot = F(2);
+                g.FillEllipse(b, cx - dot / 2, cy - F(4.2f), dot, dot);
+                g.FillRectangle(b, cx - F(0.8f), cy - F(1.2f), F(1.6f), F(5));
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -177,19 +218,12 @@ namespace UsageTray
             using (var pen = new Pen(Border)) g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
 
             using (var title = new Font("Segoe UI Semibold", F(13), GraphicsUnit.Pixel))
-            using (var small = new Font("Segoe UI", F(11.5f), GraphicsUnit.Pixel))
             using (var fg = new SolidBrush(Fg))
             using (var muted = new SolidBrush(Muted))
             {
                 g.DrawString("Usage Monitor", title, fg, F(Pad), F(10));
 
-                string rt = busy ? "Memuat…" : "↻ Refresh";
-                SizeF rs = g.MeasureString(rt, small);
-                refreshRect = new RectangleF(F(W - Pad) - rs.Width - F(8), F(7), rs.Width + F(16), F(22));
-                if (hoverRefresh && !busy)
-                    using (var hb = new SolidBrush(Color.FromArgb(60, 60, 60)))
-                    using (var path = Round(refreshRect, F(6))) g.FillPath(hb, path);
-                g.DrawString(rt, small, busy ? muted : fg, refreshRect.X + F(8), refreshRect.Y + (refreshRect.Height - rs.Height) / 2);
+                DrawHeaderButtons(g);
 
                 float y = F(HeaderH);
                 for (int i = 0; i < defs.Count; i++)

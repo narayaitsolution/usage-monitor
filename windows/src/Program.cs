@@ -12,7 +12,15 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace UsageTray
+[assembly: System.Reflection.AssemblyTitle("Usage Monitor")]
+[assembly: System.Reflection.AssemblyProduct("Usage Monitor")]
+[assembly: System.Reflection.AssemblyCompany("Naraya IT Solution")]
+[assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Naraya IT Solution")]
+[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("2.0")]
+
+namespace UsageMonitor
 {
     static class Program
     {
@@ -57,10 +65,46 @@ namespace UsageTray
                 }
                 return;
             }
+            if (args.Length == 2 && args[0] == "--check-update")
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                string outText;
+                try
+                {
+                    var r = Updater.FetchLatest();
+                    outText = "current=" + AppInfo.Version + " latest=" + r.Version + " tag=" + r.Tag
+                              + " newer=" + Updater.IsNewer(r) + " skipped=" + Updater.IsSkipped(r)
+                              + "\r\nasset=" + (r.AssetName ?? "(none)") + " " + r.AssetUrl
+                              + "\r\ndownloads=" + Updater.DownloadsDir() + "\r\nnotes:\r\n" + r.Notes;
+                }
+                catch (Exception ex) { outText = "error: " + ex.Message; }
+                File.WriteAllText(args[1], outText);
+                return;
+            }
+            if (args.Length == 2 && (args[0] == "--preview-about" || args[0] == "--preview-update"))
+            {
+                // Render the About / Update window to a PNG (the update window uses a sample release)
+                try { SetProcessDPIAware(); } catch { }
+                Form f = args[0] == "--preview-about" ? (Form)new AboutForm()
+                    : new UpdateForm(new ReleaseInfo { Version = "2.1", Tag = "v2.1", AssetName = "UsageMonitor.exe", AssetUrl = "x",
+                                                       Notes = "Contoh catatan rilis:\n- Perbaikan tampilan popup\n- Waktu reset lebih akurat" });
+                f.StartPosition = FormStartPosition.Manual;
+                f.Location = new Point(-5000, -5000);
+                f.Show();
+                Application.DoEvents();
+                using (var bmp = new Bitmap(f.Width, f.Height))
+                {
+                    f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+                    bmp.Save(args[1], System.Drawing.Imaging.ImageFormat.Png);
+                }
+                f.Close();
+                return;
+            }
             bool created;
-            using (var mutex = new Mutex(true, "UsageTray_SingleInstance_7f3a", out created))
+            using (var mutex = new Mutex(true, "UsageMonitor_SingleInstance_7f3a", out created))
             {
                 if (!created) return;
+                Settings.MigrateFromUsageTray();
                 try { SetProcessDPIAware(); } catch { }
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 Application.EnableVisualStyles();

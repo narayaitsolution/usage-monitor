@@ -1,12 +1,13 @@
-# UsageTray — Linux
+# Usage Monitor — Linux
 
 Icon tray Linux (AppIndicator / StatusNotifierItem) untuk memantau usage **Claude** (`claude` CLI) dan **ChatGPT** (Codex CLI), jendela 5 jam & 7 hari.
 
-- **Klik icon** → menu berisi usage 5 jam & 7 hari (dengan bar teks dan titik warna), waktu reset, plan, email, Refresh, **Tampilkan akun**, *Jalankan saat login*, Keluar.
-- **Tampilkan akun** berisi centang Claude dan/atau ChatGPT, hanya untuk CLI yang terpasang. Minimal satu harus tercentang. Pilihan disimpan di `~/.config/usagetray/settings.json`.
+- **Klik icon** → menu berisi usage 5 jam & 7 hari (dengan bar teks dan titik warna), waktu reset, plan, email, Refresh, **Tampilkan akun**, *Jalankan saat login*, **ⓘ Tentang & update…**, Keluar.
+- **Tampilkan akun** berisi centang Claude dan/atau ChatGPT, hanya untuk CLI yang terpasang. Minimal satu harus tercentang. Pilihan disimpan di `~/.config/usagemonitor/settings.json`.
 - Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan: Claude di atas, ChatGPT di bawah.
 - Warna: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%. Notifikasi (`notify-send`) saat usage ≥ 90%.
 - Refresh otomatis tiap 5 menit.
+- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ Tentang & update… → Periksa update**. Versi baru (`usagemonitor.py`, atau kode sumber jika rilis tidak menyertakannya) diunduh ke folder Downloads; ganti file lama secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut (`skipped_version` di `settings.json`).
 
 > Di Linux, klik icon tray standar (AppIndicator) selalu membuka **menu**, bukan jendela popup. Karena itu usage ditampilkan sebagai isi menu.
 
@@ -27,11 +28,12 @@ Login: `claude` CLI dengan akun langganan (Pro/Max), Codex CLI dengan **Sign in 
 ## Jalankan
 
 ```sh
-python3 usagetray.py           # jalankan icon tray
-python3 usagetray.py --test    # tes ambil data tanpa GUI
+python3 usagemonitor.py           # jalankan icon tray
+python3 usagemonitor.py --test    # tes ambil data tanpa GUI
+python3 usagemonitor.py --check-update   # cek rilis terbaru di GitHub tanpa GUI
 ```
 
-Aktifkan **Jalankan saat login** dari menu. Opsi ini menulis `~/.config/autostart/usagetray.desktop`.
+Aktifkan **Jalankan saat login** dari menu. Opsi ini menulis `~/.config/autostart/usagemonitor.desktop`.
 
 ## Lokasi kredensial
 

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""UsageTray (Linux) - tray icon for Claude (claude CLI) and ChatGPT (Codex CLI) usage limits.
+"""Usage Monitor (Linux) - tray icon for Claude (claude CLI) and ChatGPT (Codex CLI) usage limits.
 
 Requires: Python 3.8+, PyGObject (GTK 3) and AyatanaAppIndicator3 (or AppIndicator3).
-Run `python3 usagetray.py --test` to check data fetching without the GUI.
+Run `python3 usagemonitor.py --test` to check data fetching without the GUI,
+and `python3 usagemonitor.py --check-update` to check GitHub for a newer version.
 """
 import importlib
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -20,7 +22,13 @@ from datetime import datetime, timedelta, timezone
 
 HOME = os.path.expanduser("~")
 REFRESH_SECONDS = 5 * 60
-APP_ID = "usagetray"
+APP_ID = "usagemonitor"
+APP_NAME = "Usage Monitor"
+# Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
+VERSION = "2.0"
+REPO = "narayaitsolution/usage-monitor"
+REPO_URL = "https://github.com/" + REPO
+USER_AGENT = "UsageMonitor/" + VERSION
 
 GREEN = (63, 185, 80)
 ORANGE = (240, 136, 62)
@@ -70,7 +78,7 @@ class HttpError(Exception):
 
 
 def http_get(url, headers):
-    h = {"Accept": "application/json", "User-Agent": "UsageTray/1.0"}
+    h = {"Accept": "application/json", "User-Agent": USER_AGENT}
     h.update(headers)
     req = urllib.request.Request(url, headers=h)
     try:
@@ -368,24 +376,35 @@ def installed_providers():
     return found or list(PROVIDERS)
 
 
-SETTINGS = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"),
-                        APP_ID, "settings.json")
+CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+SETTINGS = os.path.join(CONFIG_HOME, APP_ID, "settings.json")
 
 
-def load_hidden():
+def load_settings():
     try:
-        return set(read_json(SETTINGS).get("hidden_providers") or [])
+        d = read_json(SETTINGS)
+        return d if isinstance(d, dict) else {}
     except Exception:
-        return set()
+        return {}
 
 
-def save_hidden(hidden):
+def save_setting(key, value):
+    d = load_settings()
+    d[key] = value
     try:
         os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
         with open(SETTINGS, "w", encoding="utf-8") as f:
-            json.dump({"hidden_providers": sorted(hidden)}, f)
+            json.dump(d, f)
     except OSError:
         pass
+
+
+def load_hidden():
+    return set(load_settings().get("hidden_providers") or [])
+
+
+def save_hidden(hidden):
+    save_setting("hidden_providers", sorted(hidden))
 
 
 # ---------------------------------------------------------------- icon (pure-python PNG)
@@ -438,12 +457,172 @@ def set_autostart(on):
     if on:
         os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
         with open(AUTOSTART, "w") as f:
-            f.write("[Desktop Entry]\nType=Application\nName=UsageTray\n"
+            f.write("[Desktop Entry]\nType=Application\nName=Usage Monitor\n"
                     "Comment=Claude & ChatGPT usage monitor\n"
                     'Exec="%s" "%s"\nX-GNOME-Autostart-enabled=true\n'
                     % (sys.executable, os.path.abspath(__file__)))
     elif os.path.exists(AUTOSTART):
         os.remove(AUTOSTART)
+
+
+def migrate_from_usagetray():
+    """Moves settings and autostart from the old "UsageTray" name (usagetray)."""
+    old_settings = os.path.join(CONFIG_HOME, "usagetray", "settings.json")
+    if not os.path.exists(SETTINGS) and os.path.exists(old_settings):
+        try:
+            os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
+            shutil.copyfile(old_settings, SETTINGS)
+            shutil.rmtree(os.path.dirname(old_settings), ignore_errors=True)
+        except OSError:
+            pass
+    old_auto = os.path.join(CONFIG_HOME, "autostart", "usagetray.desktop")
+    if os.path.exists(old_auto):
+        try:
+            os.remove(old_auto)
+            set_autostart(True)
+        except OSError:
+            pass
+    shutil.rmtree(os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "usagetray"),
+                  ignore_errors=True)
+
+
+# ---------------------------------------------------------------- update check (GitHub Releases)
+class ReleaseInfo:
+    def __init__(self):
+        self.version = None      # "2.1"
+        self.tag = ""            # "v2.1"
+        self.notes = ""          # release description (what changed)
+        self.page_url = REPO_URL + "/releases"
+        self.asset_name = None   # file for Linux, or the source code zip
+        self.asset_url = None
+        self.asset_size = 0
+        self.is_source = False   # no Linux file in the release: the source code zip is offered instead
+
+
+def normalize_version(tag):
+    """'v.1.0.0' -> '1.0.0', 'v2.1' -> '2.1'"""
+    m = re.search(r"\d+(\.\d+)*", tag or "")
+    return m.group(0) if m else None
+
+
+def compare_versions(a, b):
+    """Part by part: '2.0' equals '2.0.0', '2.1' is newer, '10.0' beats '9.9'."""
+    pa = [int(x) if x.isdigit() else 0 for x in (a or "0").split(".")]
+    pb = [int(x) if x.isdigit() else 0 for x in (b or "0").split(".")]
+    n = max(len(pa), len(pb))
+    pa += [0] * (n - len(pa))
+    pb += [0] * (n - len(pb))
+    return (pa > pb) - (pa < pb)
+
+
+def is_newer(rel):
+    return compare_versions(rel.version, VERSION) > 0
+
+
+def is_skipped(rel):
+    skipped = load_settings().get("skipped_version")
+    return skipped is not None and compare_versions(skipped, rel.version) == 0
+
+
+def skip_version(rel):
+    save_setting("skipped_version", rel.version)
+
+
+def _asset_score(name):
+    n = name.lower()
+    if "win" in n.replace("darwin", "") or "mac" in n or "darwin" in n or n.endswith(".exe"):
+        return 0
+    if n.endswith(".py"):
+        return 3 if "usagemonitor" in re.sub(r"[^a-z0-9.]", "", n) else 2
+    if "linux" in n:
+        return 1
+    return 0
+
+
+def fetch_latest():
+    """Latest published release on GitHub (drafts and pre-releases are ignored by the API)."""
+    try:
+        root = http_get("https://api.github.com/repos/%s/releases/latest" % REPO, {})
+    except HttpError as e:
+        if e.code == 404:
+            raise Exception("Belum ada rilis di GitHub.")
+        if e.code in (403, 429):
+            raise Exception("GitHub membatasi permintaan. Coba lagi nanti.")
+        raise Exception("GitHub membalas HTTP %d." % e.code)
+    r = ReleaseInfo()
+    r.tag = root.get("tag_name") or ""
+    r.version = normalize_version(r.tag) or normalize_version(root.get("name") or "")
+    if not r.version:
+        raise Exception("Tag rilis tidak berisi nomor versi: " + r.tag)
+    r.notes = (root.get("body") or "").strip()
+    r.page_url = root.get("html_url") or r.page_url
+    best = 0
+    for a in root.get("assets") or []:
+        score = _asset_score(a.get("name") or "")
+        if score > best and a.get("browser_download_url"):
+            best = score
+            r.asset_name = a["name"]
+            r.asset_url = a["browser_download_url"]
+            r.asset_size = int(a.get("size") or 0)
+    if not r.asset_url and root.get("zipball_url"):
+        r.asset_name = "usage-monitor-%s-source.zip" % r.version
+        r.asset_url = root["zipball_url"]
+        r.is_source = True
+    return r
+
+
+def downloads_dir():
+    try:
+        d = subprocess.run(["xdg-user-dir", "DOWNLOAD"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if d and d != HOME and os.path.isdir(d):
+            return d
+    except Exception:
+        pass
+    return os.path.join(HOME, "Downloads")
+
+
+def unique_path(folder, name):
+    """'usagemonitor.py' -> 'usagemonitor (1).py' when the name is taken, like a browser does."""
+    stem, ext = os.path.splitext(name)
+    path = os.path.join(folder, name)
+    i = 1
+    while os.path.exists(path) or os.path.exists(path + ".part"):
+        path = os.path.join(folder, "%s (%d)%s" % (stem, i, ext))
+        i += 1
+    return path
+
+
+def download_release(rel, progress=None):
+    """Downloads the release file into the Downloads folder. progress gets 0-100, or -1 if the size is unknown."""
+    folder = downloads_dir()
+    os.makedirs(folder, exist_ok=True)
+    path = unique_path(folder, os.path.basename(rel.asset_name))
+    tmp = path + ".part"
+    req = urllib.request.Request(rel.asset_url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as f:
+            total = int(resp.headers.get("Content-Length") or 0) or rel.asset_size
+            done, last = 0, None
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                pct = min(100, done * 100 // total) if total else -1
+                if progress and pct != last:
+                    last = pct
+                    progress(pct)
+        os.replace(tmp, path)
+        return path
+    except Exception as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        if isinstance(e, urllib.error.URLError):
+            raise Exception("Unduhan gagal: %s" % getattr(e, "reason", e))
+        raise
 
 
 # ---------------------------------------------------------------- GUI
@@ -461,6 +640,219 @@ def load_gui():
         except (ImportError, ValueError):
             continue
     sys.exit("AppIndicator tidak ditemukan. Ubuntu/Debian: sudo apt install gir1.2-ayatanaappindicator3-0.1")
+
+
+class DialogBase:
+    """Small always-on-top window (About / Update)."""
+
+    def __init__(self, app, title):
+        self.app = app
+        self.Gtk = app.Gtk
+        self.closed = False
+        self.win = self.Gtk.Window(title=title)
+        self.win.set_keep_above(True)
+        self.win.set_position(self.Gtk.WindowPosition.CENTER)
+        self.win.set_resizable(False)
+        self.win.set_border_width(18)
+        self.win.set_default_size(420, -1)
+        self.win.connect("destroy", self._on_destroy)
+
+    def _on_destroy(self, *_):
+        self.closed = True
+
+    def close(self, *_):
+        if not self.closed:
+            self.win.destroy()
+
+    def present(self):
+        self.win.show_all()
+        self.win.present()
+
+    def new_box(self):
+        child = self.win.get_child()
+        if child:
+            self.win.remove(child)
+        box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        self.win.add(box)
+        return box
+
+    def text(self, box, text, size=None, bold=False, dim=False, color=None, selectable=False):
+        lbl = self.Gtk.Label()
+        lbl.set_xalign(0)
+        lbl.set_line_wrap(True)
+        lbl.set_max_width_chars(58)
+        lbl.set_selectable(selectable)
+        markup = self.app.GLib.markup_escape_text(text)
+        attrs = []
+        if size:
+            attrs.append('size="%s"' % size)
+        if bold:
+            attrs.append('weight="bold"')
+        if color:
+            attrs.append('foreground="%s"' % color)
+        if attrs:
+            markup = "<span %s>%s</span>" % (" ".join(attrs), markup)
+        lbl.set_markup(markup)
+        if dim:
+            lbl.get_style_context().add_class("dim-label")
+        box.pack_start(lbl, False, False, 0)
+        return lbl
+
+    def buttons(self, box, *specs):
+        """Right-aligned buttons; specs = (label, callback), the first is the default action (rightmost)."""
+        row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_margin_top(8)
+        result = []
+        for i, (label, cb) in enumerate(specs):
+            b = self.Gtk.Button(label=label)
+            b.connect("clicked", cb)
+            if i == 0:
+                b.get_style_context().add_class("suggested-action")
+            row.pack_end(b, False, False, 0)
+            result.append(b)
+        box.pack_start(row, False, False, 0)
+        return result
+
+    def run_async(self, work, done):
+        """work() on a thread, then done(result, error) in the GTK loop if the window is still open."""
+        def runner():
+            try:
+                res, err = work(), None
+            except Exception as e:
+                res, err = None, e
+            self.app.GLib.idle_add(lambda: (None if self.closed else done(res, err)) and False)
+        threading.Thread(target=runner, daemon=True).start()
+
+
+class UpdateWindow(DialogBase):
+    """'Update tersedia': offer -> downloading -> downloaded (move the file manually; the app is portable)."""
+
+    def __init__(self, app, rel):
+        DialogBase.__init__(self, app, "Update " + APP_NAME)
+        self.rel = rel
+        self.show_offer(None)
+
+    def show_offer(self, error):
+        r = self.rel
+        box = self.new_box()
+        self.text(box, "Update tersedia", size="large", bold=True)
+        self.text(box, "%s %s sudah tersedia. Versi Anda: %s." % (APP_NAME, r.version, VERSION), dim=True)
+        self.text(box, "Yang baru di versi %s:" % r.version, bold=True)
+        view = self.Gtk.TextView()
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        view.set_wrap_mode(self.Gtk.WrapMode.WORD)
+        view.set_left_margin(8)
+        view.set_right_margin(8)
+        view.set_top_margin(6)
+        view.get_buffer().set_text(r.notes or "(Tidak ada catatan rilis.)")
+        sw = self.Gtk.ScrolledWindow()
+        sw.set_size_request(420, 150)
+        sw.set_shadow_type(self.Gtk.ShadowType.IN)
+        sw.add(view)
+        box.pack_start(sw, False, False, 0)
+        if r.is_source:
+            self.text(box, "Rilis ini tidak berisi file khusus Linux, jadi yang diunduh adalah kode sumbernya.",
+                      size="small", dim=True)
+        if error:
+            self.text(box, error, size="small", color="#e5484d")
+        self.text(box, "Skip: tawaran untuk versi %s tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi "
+                       "saat aplikasi dibuka berikutnya." % r.version, size="small", dim=True)
+        self.buttons(box, ("Update", self.start_download), ("Skip", self.skip))
+        self.present()
+
+    def skip(self, *_):
+        skip_version(self.rel)
+        self.close()
+
+    def start_download(self, *_):
+        if not self.rel.asset_url:
+            subprocess.Popen(["xdg-open", self.rel.page_url])
+            self.close()
+            return
+        box = self.new_box()
+        self.text(box, "Mengunduh update…", size="large", bold=True)
+        self.text(box, "%s → folder Downloads" % self.rel.asset_name, dim=True)
+        bar = self.Gtk.ProgressBar()
+        bar.set_show_text(True)
+        box.pack_start(bar, False, False, 4)
+        self.present()
+
+        def pulse():
+            if self.closed or bar.get_fraction() > 0:
+                return False
+            bar.pulse()
+            return True
+        self.app.GLib.timeout_add(120, pulse)
+
+        def progress(pct):
+            if pct >= 0:
+                self.app.GLib.idle_add(lambda: (None if self.closed else bar.set_fraction(max(0.001, pct / 100.0))) and False)
+
+        self.run_async(lambda: download_release(self.rel, progress),
+                       lambda path, err: self.show_offer(str(err)) if err else self.show_done(path))
+
+    def show_done(self, path):
+        script = os.path.abspath(__file__)
+        name = os.path.basename(path)
+        box = self.new_box()
+        self.text(box, "Update berhasil diunduh", size="large", bold=True)
+        self.text(box, "File tersimpan di:", dim=True)
+        self.text(box, path, size="small", selectable=True)
+        self.text(box, "%s adalah aplikasi portable, jadi pindahkan file update secara manual:" % APP_NAME)
+        if self.rel.is_source:
+            step2 = "2. Ekstrak %s, lalu salin linux/usagemonitor.py ke %s (ganti %s yang lama)." % (
+                name, os.path.dirname(script), os.path.basename(script))
+        else:
+            step2 = "2. Pindahkan %s ke %s dan ganti %s yang lama%s." % (
+                name, os.path.dirname(script), os.path.basename(script),
+                "" if name == os.path.basename(script) else " (beri nama %s)" % os.path.basename(script))
+        self.text(box, "1. Keluar dari %s (tombol di bawah).\n%s\n3. Jalankan %s lagi." % (
+            APP_NAME, step2, os.path.basename(script)), dim=True)
+        self.buttons(box, ("Buka folder", lambda *_: subprocess.Popen(["xdg-open", os.path.dirname(path)])),
+                     ("Keluar dari " + APP_NAME, lambda *_: self.app.quit()),
+                     ("Tutup", self.close))
+        self.present()
+
+
+class AboutWindow(DialogBase):
+    """'Tentang' window: app info and a manual update check."""
+
+    def __init__(self, app):
+        DialogBase.__init__(self, app, "Tentang " + APP_NAME)
+        box = self.new_box()
+        self.text(box, APP_NAME, size="x-large", bold=True)
+        self.text(box, "Versi " + VERSION, dim=True)
+        self.text(box, "Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan "
+                       "ChatGPT (Codex CLI) dari system tray.")
+        link = self.Gtk.LinkButton.new_with_label(REPO_URL, REPO_URL)
+        link.set_halign(self.Gtk.Align.START)
+        box.pack_start(link, False, False, 0)
+        self.text(box, "© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
+                  size="small", dim=True)
+        self.status = self.text(box, "Update dicek otomatis setiap aplikasi dibuka.", size="small", dim=True)
+        self.check_btn = self.buttons(box, ("Periksa update", self.check), ("Tutup", self.close))[0]
+        self.present()
+
+    def set_status(self, text, color=None):
+        markup = self.app.GLib.markup_escape_text(text)
+        self.status.set_markup('<span size="small"%s>%s</span>' % (' foreground="%s"' % color if color else "", markup))
+
+    def check(self, *_):
+        self.check_btn.set_sensitive(False)
+        self.set_status("Memeriksa update…")
+
+        def done(rel, err):
+            self.check_btn.set_sensitive(True)
+            if err:
+                self.set_status("Gagal memeriksa update: %s" % err, "#e5484d")
+            elif not is_newer(rel):
+                self.set_status("✓ Anda sudah memakai versi terbaru (%s)." % VERSION, "#3fb950")
+            else:
+                self.set_status("Versi %s tersedia." % rel.version, "#4c8bf5")
+                self.close()
+                self.app.show_update(rel)
+        self.run_async(fetch_latest, done)
 
 
 class TrayApp:
@@ -484,10 +876,12 @@ class TrayApp:
                 except OSError:
                     pass
         self.icon_path = None
+        self.about_win = None
+        self.update_win = None
 
         self.ind = AppIndicator.Indicator.new(APP_ID, "", AppIndicator.IndicatorCategory.APPLICATION_STATUS)
         self.ind.set_status(AppIndicator.IndicatorStatus.ACTIVE)
-        self.ind.set_title("Usage Monitor")
+        self.ind.set_title(APP_NAME)
         self.update_icon()
         self.rebuild_menu()
 
@@ -495,6 +889,35 @@ class TrayApp:
         # keep "reset dalam" countdown fresh and pick up newly installed CLIs
         self.GLib.timeout_add_seconds(30, self._rebuild_tick)
         self.refresh()
+        # check GitHub for a newer version shortly after start up
+        self.GLib.timeout_add_seconds(4, self._startup_update_check)
+
+    # ------------------------------------------------------------ update & about
+    def _startup_update_check(self):
+        def work():
+            try:
+                rel = fetch_latest()
+            except Exception:
+                return  # offline or GitHub unavailable: try again next start
+            if is_newer(rel) and not is_skipped(rel):
+                self.GLib.idle_add(lambda: self.show_update(rel) and False)
+        threading.Thread(target=work, daemon=True).start()
+        return False
+
+    def show_update(self, rel):
+        w = self.update_win
+        if w and not w.closed:
+            if compare_versions(w.rel.version, rel.version) == 0:
+                w.present()
+                return
+            w.close()
+        self.update_win = UpdateWindow(self, rel)
+
+    def show_about(self, *_):
+        if self.about_win and not self.about_win.closed:
+            self.about_win.present()
+            return
+        self.about_win = AboutWindow(self)
 
     def shown(self):
         """Installed providers that are ticked. Never empty."""
@@ -599,7 +1022,7 @@ class TrayApp:
         key = prov.id + label
         high = w.percent is not None and w.percent >= 90
         if high and not self.alerted.get(key) and shutil.which("notify-send"):
-            subprocess.Popen(["notify-send", "-a", "UsageTray", "-u", "critical",
+            subprocess.Popen(["notify-send", "-a", APP_NAME, "-u", "critical",
                               "Usage %s tinggi" % prov.title,
                               "%s %s: %s terpakai. %s" % (prov.title, label, pct_text(w.percent), reset_text(w.reset_at))])
         self.alerted[key] = high
@@ -607,7 +1030,7 @@ class TrayApp:
     def update_icon(self):
         path = os.path.join(self.icon_dir, "icon-%d.png" % int(time.time() * 1000))
         write_icon(path, [self.data.get(p.id) for p in self.shown()])
-        self.ind.set_icon_full(path, "Usage Monitor")
+        self.ind.set_icon_full(path, APP_NAME)
         if self.icon_path and os.path.exists(self.icon_path):
             try:
                 os.remove(self.icon_path)
@@ -672,6 +1095,7 @@ class TrayApp:
         auto.set_active(autostart_enabled())
         auto.connect("toggled", lambda i: set_autostart(i.get_active()))
         menu.append(auto)
+        label("ⓘ Tentang & update…").connect("activate", self.show_about)
         menu.append(Gtk.SeparatorMenuItem())
         label("Keluar").connect("activate", self.quit)
 
@@ -681,6 +1105,9 @@ class TrayApp:
         return False
 
     def quit(self, *_):
+        for w in (self.about_win, self.update_win):
+            if w:
+                w.close()
         if self.icon_path and os.path.exists(self.icon_path):
             try:
                 os.remove(self.icon_path)
@@ -703,9 +1130,24 @@ def run_test():
             print("  " + info)
 
 
+def run_check_update():
+    try:
+        r = fetch_latest()
+    except Exception as e:
+        print("error:", e)
+        return
+    print("current=%s latest=%s tag=%s newer=%s skipped=%s" % (VERSION, r.version, r.tag, is_newer(r), is_skipped(r)))
+    print("asset=%s %s%s" % (r.asset_name, r.asset_url, " (source)" if r.is_source else ""))
+    print("downloads=" + downloads_dir())
+    print("notes:\n" + r.notes)
+
+
 def main():
     if "--test" in sys.argv:
         run_test()
+        return
+    if "--check-update" in sys.argv:
+        run_check_update()
         return
     if "--icon" in sys.argv:  # debug: write icon PNG with live data (optional ids after path)
         i = sys.argv.index("--icon")
@@ -715,6 +1157,7 @@ def main():
         return
     import signal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    migrate_from_usagetray()
     TrayApp().run()
 
 

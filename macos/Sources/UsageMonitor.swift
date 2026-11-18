@@ -1,4 +1,4 @@
-// UsageTray (macOS) - menu bar monitor for Claude (claude CLI) and ChatGPT (Codex CLI) usage limits.
+// Usage Monitor (macOS) - menu bar monitor for Claude (claude CLI) and ChatGPT (Codex CLI) usage limits.
 // Build with ./build.sh (requires Xcode Command Line Tools, macOS 12+).
 import Cocoa
 import SwiftUI
@@ -66,7 +66,7 @@ func httpGet(_ url: String, _ headers: [String: String]) async throws -> [String
     var req = URLRequest(url: URL(string: url)!)
     req.timeoutInterval = 20
     req.setValue("application/json", forHTTPHeaderField: "Accept")
-    req.setValue("UsageTray/1.0", forHTTPHeaderField: "User-Agent")
+    req.setValue(AppInfo.userAgent, forHTTPHeaderField: "User-Agent")
     for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
     let (data, resp) = try await URLSession.shared.data(for: req)
     let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -329,7 +329,7 @@ func resetText(_ date: Date?, now: Date = Date()) -> String {
 // MARK: - Login item (LaunchAgent)
 
 enum LoginItem {
-    static let label = "com.usagetray.app"
+    static let label = "com.usagemonitor.app"
     static var url: URL { homeDir.appendingPathComponent("Library/LaunchAgents/\(label).plist") }
     static var isEnabled: Bool { FileManager.default.fileExists(atPath: url.path) }
     static func set(_ on: Bool) {
@@ -581,6 +581,7 @@ struct ProviderCard: View {
 
 struct PopupView: View {
     @ObservedObject var store: Store
+    var onInfo: @MainActor () -> Void = {}
 
     var footer: String {
         guard let u = store.updated else { return "Belum ada data" }
@@ -591,11 +592,20 @@ struct PopupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
+            HStack(spacing: 4) {
                 Text("Usage Monitor").font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Button(store.busy ? "Memuat…" : "↻ Refresh") { store.refresh() }
-                    .disabled(store.busy)
+                Button { store.refresh() } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
+                }
+                .buttonStyle(.borderless)
+                .disabled(store.busy)
+                .help(store.busy ? "Memuat…" : "Refresh")
+                Button { onInfo() } label: {
+                    Image(systemName: "info.circle").font(.system(size: 14))
+                }
+                .buttonStyle(.borderless)
+                .help("Tentang & update")
             }
             ForEach(store.shown) { p in
                 ProviderCard(title: p.title, accent: p.accent, status: store.data[p.id], busy: store.busy, now: store.now)
@@ -655,6 +665,368 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
     return "\(title) 5h \(pctText(p.five.percent)) | 7d \(pctText(p.week.percent))"
 }
 
+// MARK: - App info & update
+
+enum AppInfo {
+    static let name = "Usage Monitor"
+    /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
+    static let version = "2.0"
+    static let repo = "narayaitsolution/usage-monitor"
+    static let repoURL = "https://github.com/\(repo)"
+    static let userAgent = "UsageMonitor/\(version)"
+}
+
+struct ReleaseInfo {
+    var version: String
+    var tag: String
+    var notes: String
+    var pageURL: String
+    var assetName: String?
+    var assetURL: URL?
+    var isSource = false   // no macOS file in the release: the source code zip is offered instead
+}
+
+func updateErrorText(_ error: Error) -> String {
+    if case let FetchError.message(m) = error { return m }
+    if case let FetchError.http(code, _) = error { return "HTTP \(code)" }
+    return error.localizedDescription
+}
+
+enum Updater {
+    static let skippedKey = "skippedVersion"
+
+    /// "v.1.0.0" -> "1.0.0", "v2.1" -> "2.1"
+    static func normalize(_ tag: String) -> String? {
+        guard let r = tag.range(of: "\\d+(\\.\\d+)*", options: .regularExpression) else { return nil }
+        return String(tag[r])
+    }
+
+    /// Compares version numbers part by part: "2.0" equals "2.0.0", "2.1" is newer, "10.0" beats "9.9".
+    static func compare(_ a: String, _ b: String) -> Int {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0
+            let y = i < pb.count ? pb[i] : 0
+            if x != y { return x < y ? -1 : 1 }
+        }
+        return 0
+    }
+
+    static func isNewer(_ r: ReleaseInfo) -> Bool { compare(r.version, AppInfo.version) > 0 }
+
+    static func isSkipped(_ r: ReleaseInfo) -> Bool {
+        guard let s = UserDefaults.standard.string(forKey: skippedKey) else { return false }
+        return compare(s, r.version) == 0
+    }
+
+    static func skip(_ r: ReleaseInfo) { UserDefaults.standard.set(r.version, forKey: skippedKey) }
+
+    /// Latest published release on GitHub (drafts and pre-releases are ignored by the API).
+    static func fetchLatest() async throws -> ReleaseInfo {
+        let root: [String: Any]
+        do {
+            root = try await httpGet("https://api.github.com/repos/\(AppInfo.repo)/releases/latest", [:])
+        } catch FetchError.http(let code, _) {
+            if code == 404 { throw FetchError.message("Belum ada rilis di GitHub.") }
+            if code == 403 || code == 429 { throw FetchError.message("GitHub membatasi permintaan. Coba lagi nanti.") }
+            throw FetchError.message("GitHub membalas HTTP \(code).")
+        } catch {
+            throw FetchError.message("Koneksi gagal: \(error.localizedDescription)")
+        }
+        let tag = root["tag_name"] as? String ?? ""
+        guard let version = normalize(tag) ?? normalize(root["name"] as? String ?? "") else {
+            throw FetchError.message("Tag rilis tidak berisi nomor versi: \(tag)")
+        }
+        var r = ReleaseInfo(version: version, tag: tag,
+                            notes: (root["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                            pageURL: root["html_url"] as? String ?? AppInfo.repoURL + "/releases")
+        // File for macOS: a release file with "mac" in its name (.dmg > .zip > other)
+        var best = 0
+        for a in root["assets"] as? [[String: Any]] ?? [] {
+            let name = a["name"] as? String ?? ""
+            let n = name.lowercased()
+            guard n.contains("mac") || n.contains("darwin") else { continue }
+            let score = n.hasSuffix(".dmg") ? 3 : n.hasSuffix(".zip") ? 2 : 1
+            if score > best, let u = (a["browser_download_url"] as? String).flatMap({ URL(string: $0) }) {
+                best = score
+                r.assetName = name
+                r.assetURL = u
+            }
+        }
+        if r.assetURL == nil, let z = (root["zipball_url"] as? String).flatMap({ URL(string: $0) }) {
+            r.assetName = "usage-monitor-\(version)-source.zip"
+            r.assetURL = z
+            r.isSource = true
+        }
+        return r
+    }
+
+    static func downloadsDir() -> URL {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? homeDir.appendingPathComponent("Downloads")
+    }
+
+    /// "UsageMonitor.zip" -> "UsageMonitor (1).zip" when the name is taken, like a browser does.
+    static func uniqueURL(_ dir: URL, _ name: String) -> URL {
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var url = dir.appendingPathComponent(name)
+        var i = 1
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(stem) (\(i))" + (ext.isEmpty ? "" : ".\(ext)"))
+            i += 1
+        }
+        return url
+    }
+
+    /// Downloads the release file into the Downloads folder.
+    static func download(_ r: ReleaseInfo) async throws -> URL {
+        guard let src = r.assetURL, let name = r.assetName else { throw FetchError.message("Rilis tidak berisi file.") }
+        var req = URLRequest(url: src)
+        req.timeoutInterval = 60
+        req.setValue(AppInfo.userAgent, forHTTPHeaderField: "User-Agent")
+        let (tmp, resp) = try await URLSession.shared.download(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else {
+            try? FileManager.default.removeItem(at: tmp)
+            throw FetchError.message("Unduhan gagal (HTTP \(code)).")
+        }
+        let dir = downloadsDir()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = uniqueURL(dir, (name as NSString).lastPathComponent)
+        try FileManager.default.moveItem(at: tmp, to: dest)
+        return dest
+    }
+}
+
+/// Moves settings and the login item from the old "UsageTray" name (com.usagetray.app).
+func migrateFromUsageTray() {
+    let d = UserDefaults.standard
+    if d.object(forKey: "hiddenProviders") == nil,
+       let old = UserDefaults(suiteName: "com.usagetray.app")?.stringArray(forKey: "hiddenProviders") {
+        d.set(old, forKey: "hiddenProviders")
+    }
+    let oldPlist = homeDir.appendingPathComponent("Library/LaunchAgents/com.usagetray.app.plist")
+    if FileManager.default.fileExists(atPath: oldPlist.path) {
+        try? FileManager.default.removeItem(at: oldPlist)
+        LoginItem.set(true)
+    }
+}
+
+@MainActor
+final class UpdateModel: ObservableObject {
+    enum Phase { case offer, downloading, done(URL) }
+    let release: ReleaseInfo
+    @Published var phase = Phase.offer
+    @Published var error: String?
+    var onClose: (@MainActor () -> Void)?
+    var onQuit: (@MainActor () -> Void)?
+
+    init(_ r: ReleaseInfo) { release = r }
+
+    func startDownload() {
+        guard release.assetURL != nil else { return }
+        error = nil
+        phase = .downloading
+        Task {
+            do {
+                let url = try await Updater.download(release)
+                self.phase = .done(url)
+            } catch let e {
+                self.error = updateErrorText(e)
+                self.phase = .offer
+            }
+        }
+    }
+}
+
+@MainActor
+final class AboutModel: ObservableObject {
+    @Published var status = "Update dicek otomatis setiap aplikasi dibuka."
+    @Published var statusColor = Color.secondary
+    @Published var checking = false
+    var onFound: (@MainActor (ReleaseInfo) -> Void)?
+    var onClose: (@MainActor () -> Void)?
+
+    func check() {
+        checking = true
+        status = "Memeriksa update…"
+        statusColor = .secondary
+        Task {
+            do {
+                let r = try await Updater.fetchLatest()
+                self.checking = false
+                if Updater.isNewer(r) {
+                    self.status = "Versi \(r.version) tersedia."
+                    self.statusColor = .accentColor
+                    self.onFound?(r)
+                } else {
+                    self.status = "✓ Anda sudah memakai versi terbaru (\(AppInfo.version))."
+                    self.statusColor = .green
+                }
+            } catch let e {
+                self.checking = false
+                self.status = "Gagal memeriksa update: " + updateErrorText(e)
+                self.statusColor = .red
+            }
+        }
+    }
+}
+
+/// Sample bars for the app logo in the About window.
+func logoImage() -> NSImage {
+    var a = ProviderStatus(name: "")
+    a.five.percent = 35
+    a.week.percent = 62
+    var b = ProviderStatus(name: "")
+    b.five.percent = 28
+    b.week.percent = 85
+    return makeIcon([a, b])
+}
+
+struct UpdateView: View {
+    @ObservedObject var model: UpdateModel
+    var r: ReleaseInfo { model.release }
+
+    /// Folder that holds the running UsageMonitor.app
+    var appFolder: String { Bundle.main.bundleURL.deletingLastPathComponent().path }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch model.phase {
+            case .offer: offer
+            case .downloading: downloading
+            case .done(let url): done(url)
+            }
+        }
+        .padding(18)
+        .frame(width: 400)
+    }
+
+    var offer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Update tersedia").font(.system(size: 17, weight: .semibold))
+            Text("\(AppInfo.name) \(r.version) sudah tersedia. Versi Anda: \(AppInfo.version).")
+                .foregroundColor(.secondary)
+            Text("Yang baru di versi \(r.version):").font(.system(size: 13, weight: .semibold))
+            ScrollView {
+                Text(r.notes.isEmpty ? "(Tidak ada catatan rilis.)" : r.notes)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .frame(height: 150)
+            .background(Color.primary.opacity(0.06))
+            .cornerRadius(6)
+            if r.isSource {
+                Text("Rilis ini tidak berisi file khusus macOS, jadi yang diunduh adalah kode sumbernya.")
+                    .font(.system(size: 11)).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let e = model.error {
+                Text(e).font(.system(size: 12)).foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Skip: tawaran untuk versi \(r.version) tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi saat aplikasi dibuka berikutnya.")
+                .font(.system(size: 11)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Skip") {
+                    Updater.skip(r)
+                    model.onClose?()
+                }
+                Button("Update") {
+                    if r.assetURL == nil {
+                        if let u = URL(string: r.pageURL) { NSWorkspace.shared.open(u) }
+                        model.onClose?()
+                    } else {
+                        model.startDownload()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    var downloading: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Mengunduh update…").font(.system(size: 17, weight: .semibold))
+            Text("\(r.assetName ?? "") → folder Downloads").foregroundColor(.secondary)
+            ProgressView().progressViewStyle(.linear)
+        }
+    }
+
+    func done(_ url: URL) -> some View {
+        let step2 = r.isSource
+            ? "2. Ekstrak \(url.lastPathComponent), jalankan ./build.sh di folder macos, lalu ganti UsageMonitor.app di \(appFolder) dengan hasil build."
+            : "2. Buka/ekstrak \(url.lastPathComponent), lalu ganti UsageMonitor.app di \(appFolder) dengan yang baru."
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Update berhasil diunduh").font(.system(size: 17, weight: .semibold))
+            Text("File tersimpan di:").foregroundColor(.secondary)
+            Text(url.path)
+                .font(.system(size: 11))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.06))
+                .cornerRadius(6)
+            Text("\(AppInfo.name) adalah aplikasi portable, jadi pindahkan file update secara manual:")
+                .fixedSize(horizontal: false, vertical: true)
+            Text("1. Keluar dari \(AppInfo.name) (tombol di bawah).\n\(step2)\n3. Jalankan UsageMonitor.app lagi.")
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Tutup") { model.onClose?() }
+                Button("Keluar dari \(AppInfo.name)") { model.onQuit?() }
+                Button("Tampilkan di Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+}
+
+struct AboutView: View {
+    @ObservedObject var model: AboutModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(nsImage: logoImage())
+                    .resizable()
+                    .interpolation(.none)
+                    .frame(width: 45, height: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(AppInfo.name).font(.system(size: 17, weight: .semibold))
+                    Text("Versi \(AppInfo.version)").foregroundColor(.secondary)
+                }
+            }
+            Text("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari menu bar.")
+                .fixedSize(horizontal: false, vertical: true)
+            if let url = URL(string: AppInfo.repoURL) {
+                Link(AppInfo.repoURL, destination: url)
+            }
+            Text("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.")
+                .font(.system(size: 11)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(model.status)
+                .font(.system(size: 11)).foregroundColor(model.statusColor)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Tutup") { model.onClose?() }
+                Button("Periksa update") { model.check() }
+                    .disabled(model.checking)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 380)
+    }
+}
+
 // MARK: - App delegate
 
 @MainActor
@@ -666,6 +1038,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var tick: Timer?
     var alerted: [String: Bool] = [:]
     var canNotify: Bool { Bundle.main.bundleIdentifier != nil }
+    var aboutWindow: NSWindow?
+    var updateWindow: NSWindow?
+    var updateModel: UpdateModel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -677,7 +1052,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: PopupView(store: store))
+        popover.contentViewController = NSHostingController(
+            rootView: PopupView(store: store, onInfo: { [weak self] in self?.showAbout() }))
 
         store.onUpdate = { [weak self] in self?.didUpdate() }
         if canNotify {
@@ -695,6 +1071,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         store.refresh()
+
+        // Check GitHub for a newer version shortly after start up
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            self.checkUpdateInBackground()
+        }
+    }
+
+    // MARK: Update & about windows
+
+    func checkUpdateInBackground() {
+        Task { @MainActor in
+            // offline or GitHub unavailable: try again next start
+            guard let r = try? await Updater.fetchLatest(), Updater.isNewer(r), !Updater.isSkipped(r) else { return }
+            self.showUpdate(r)
+        }
+    }
+
+    func makeWindow<V: View>(_ title: String, _ view: V) -> NSWindow {
+        let w = NSWindow(contentViewController: NSHostingController(rootView: view))
+        w.title = title
+        w.styleMask = [.titled, .closable]
+        w.level = .floating
+        w.isReleasedWhenClosed = false
+        w.center()
+        return w
+    }
+
+    func present(_ w: NSWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+
+    func showAbout() {
+        if popover.isShown { popover.performClose(nil) }
+        if aboutWindow == nil {
+            let m = AboutModel()
+            m.onFound = { [weak self] r in
+                self?.aboutWindow?.close()
+                self?.showUpdate(r)
+            }
+            m.onClose = { [weak self] in self?.aboutWindow?.close() }
+            aboutWindow = makeWindow("Tentang \(AppInfo.name)", AboutView(model: m))
+        }
+        if let w = aboutWindow { present(w) }
+    }
+
+    func showUpdate(_ r: ReleaseInfo) {
+        if let m = updateModel, let w = updateWindow, w.isVisible, Updater.compare(m.release.version, r.version) == 0 {
+            present(w)
+            return
+        }
+        updateWindow?.close()
+        let m = UpdateModel(r)
+        m.onClose = { [weak self] in self?.updateWindow?.close() }
+        m.onQuit = { NSApp.terminate(nil) }
+        updateModel = m
+        let w = makeWindow("Update \(AppInfo.name)", UpdateView(model: m))
+        updateWindow = w
+        present(w)
     }
 
     /// Left click = popover, right click (or Control+click) = menu.
@@ -734,6 +1170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let login = menuItem("Jalankan saat login", #selector(menuToggleLogin))
         login.state = store.loginEnabled ? .on : .off
         menu.addItem(login)
+        menu.addItem(menuItem("Tentang & update…", #selector(menuAbout)))
         menu.addItem(.separator())
         menu.addItem(menuItem("Keluar", #selector(menuQuit)))
 
@@ -750,6 +1187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func menuRefresh() { store.refresh() }
     @objc func menuToggleLogin() { store.setLogin(!store.loginEnabled) }
     @objc func menuQuit() { NSApp.terminate(nil) }
+    @objc func menuAbout() { showAbout() }
     @objc func menuToggleProvider(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let p = store.installed.first(where: { $0.id == id }) else { return }
@@ -796,7 +1234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Entry point
 
 @main
-struct UsageTrayMain {
+struct UsageMonitorMain {
     @MainActor
     static func main() {
         if CommandLine.arguments.contains("--test") {
@@ -813,6 +1251,7 @@ struct UsageTrayMain {
             RunLoop.main.run()
             return
         }
+        migrateFromUsageTray()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

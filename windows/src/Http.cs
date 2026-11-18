@@ -12,7 +12,7 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace UsageTray
+namespace UsageMonitor
 {
     class HttpException : Exception
     {
@@ -29,7 +29,7 @@ namespace UsageTray
             req.Timeout = 20000;
             req.ReadWriteTimeout = 20000;
             req.Accept = "application/json";
-            req.UserAgent = "UsageTray/1.0";
+            req.UserAgent = AppInfo.UserAgent;
             req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
             foreach (var kv in headers)
             {
