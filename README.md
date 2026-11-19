@@ -52,6 +52,7 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 - **Tombol ⚙ (pengaturan)** di pojok kanan atas popup: membuka menu yang sama dengan klik kanan icon (pilihan akun, jalankan saat login, bahasa, dan lainnya).
 - **Dua bahasa: Bahasa Indonesia dan English.** Secara default mengikuti bahasa sistem; bisa diganti lewat menu **Bahasa / Language**. Semua teks di aplikasi ikut berganti. Lihat [Bahasa](#bahasa).
 - **Tombol ♥ (donatur)**: daftar donatur aplikasi dan tombol **Donasi**. Lihat [Donasi](#donasi).
+- **Icon aplikasi** dengan desain yang sama seperti icon tray (bar usage 5 jam & 7 hari per akun di atas kotak gelap), tampil di Explorer, taskbar, Finder/Dock, dan jendela aplikasi.
 - **Pilih akun yang ditampilkan** (Claude, ChatGPT, atau keduanya). Hanya CLI yang terpasang di komputer yang muncul di pilihan.
 - **Jalankan otomatis saat login** (opsional).
 - **Tahan terhadap rate limit**: bila server membalas HTTP 429, data terakhir tetap ditampilkan dan aplikasi menunda pengecekan secara bertahap.
@@ -382,8 +383,10 @@ python3 usagemonitor.py --test
 ├── README.md
 ├── LICENSE
 ├── donors.json              daftar donatur & link donasi (dibaca aplikasi)
+├── tools/make_icons.py      membuat icon aplikasi (app.ico, AppIcon.icns, usagemonitor.svg)
 ├── windows/
 │   ├── build.cmd            build dengan csc.exe bawaan Windows
+│   ├── app.ico              icon aplikasi (ditanam ke UsageMonitor.exe)
 │   └── src/
 │       ├── Program.cs       entry point, mode --test / --preview
 │       ├── Models.cs        model data & daftar provider
@@ -397,9 +400,11 @@ python3 usagemonitor.py --test
 │       └── UpdateForms.cs   jendela Tentang (ⓘ), Update, dan Donatur (♥)
 ├── macos/
 │   ├── build.sh             build UsageMonitor.app dengan swiftc
+│   ├── AppIcon.icns         icon aplikasi
 │   └── Sources/UsageMonitor.swift
 └── linux/
-    └── usagemonitor.py
+    ├── usagemonitor.py
+    └── usagemonitor.svg     icon aplikasi (jendela & autostart)
 ```
 
 ---
@@ -431,9 +436,11 @@ Kontribusi dipersilakan — fork, buat perubahan, lalu kirim pull request.
    - macOS: `AppInfo.version` di `macos/Sources/UsageMonitor.swift` dan `CFBundleShortVersionString` di `macos/build.sh`
    - Linux: `VERSION` di `linux/usagemonitor.py`
 2. Build `windows\UsageMonitor.exe` (dan `UsageMonitor-macos.zip` berisi `UsageMonitor.app` jika ada Mac untuk build).
-3. Buat rilis di GitHub dengan tag `v<versi>` (misalnya `v2.1`), isi deskripsi dengan daftar perubahan — teks ini yang tampil di jendela update — lalu lampirkan `UsageMonitor.exe`, `linux/usagemonitor.py`, dan (opsional) `UsageMonitor-macos.zip`.
+3. Buat rilis di GitHub dengan tag `v<versi>` (misalnya `v2.1`), isi deskripsi dengan daftar perubahan — teks ini yang tampil di jendela update — lalu lampirkan `UsageMonitor.exe`, `linux/usagemonitor.py`, `linux/usagemonitor.svg`, dan (opsional) `UsageMonitor-macos.zip`.
 
 Aplikasi membaca rilis **terbaru yang sudah dipublikasikan** (bukan draft atau pre-release), membandingkan nomor versinya dengan versi yang sedang berjalan, dan mencari file yang cocok untuk platformnya berdasarkan nama file.
+
+**Icon aplikasi** dibuat dari satu desain oleh `python tools/make_icons.py` (butuh Pillow: `pip install pillow`). File hasilnya (`windows/app.ico`, `macos/AppIcon.icns`, `linux/usagemonitor.svg`) ikut di-commit, jadi build biasa tidak butuh Python. Jalankan ulang script ini hanya jika desain icon diubah; ubah juga `AppIcon` di `windows/src/UpdateForms.cs` agar logo di jendela Tentang tetap sama.
 
 **Menambah provider baru**: tambahkan fungsi fetch dan entri di daftar provider (`Providers.All` di Windows, `allProviders` di macOS, `PROVIDERS` di Linux).
 

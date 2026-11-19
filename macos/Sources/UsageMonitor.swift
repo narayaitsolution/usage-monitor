@@ -735,7 +735,7 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "2.1"
+    static let version = "2.2"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
@@ -1073,7 +1073,7 @@ struct AboutView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(nsImage: logoImage())
+                Image(nsImage: Bundle.main.image(forResource: "AppIcon") ?? logoImage())
                     .resizable()
                     .interpolation(.none)
                     .frame(width: 45, height: 40)

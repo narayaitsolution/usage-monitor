@@ -18,7 +18,7 @@ if "%INSTALL%"=="1" (
   ping -n 2 127.0.0.1 >nul
 )
 
-"%CSC%" /nologo /target:winexe /optimize+ /out:UsageMonitor.exe ^
+"%CSC%" /nologo /target:winexe /optimize+ /out:UsageMonitor.exe /win32icon:app.ico ^
   /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll ^
   src\*.cs
 if errorlevel 1 (echo Build GAGAL & exit /b 1)
