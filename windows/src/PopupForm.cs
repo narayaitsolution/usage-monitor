@@ -18,6 +18,9 @@ namespace UsageMonitor
     {
         public event EventHandler RefreshRequested;
         public event EventHandler InfoRequested;
+        public event EventHandler DonorsRequested;
+        /// Gear button: the argument is the screen point under the button where the settings menu opens.
+        public event Action<Point> SettingsRequested;
 
         static readonly Color Bg = Color.FromArgb(32, 32, 32);
         static readonly Color Card = Color.FromArgb(44, 44, 44);
@@ -26,14 +29,14 @@ namespace UsageMonitor
         static readonly Color Muted = Color.FromArgb(160, 160, 160);
         static readonly Color Track = Color.FromArgb(68, 68, 68);
         static readonly Color ErrColor = Color.FromArgb(255, 138, 128);
-        static readonly CultureInfo Id = new CultureInfo("id-ID");
+        static readonly Color Heart = Color.FromArgb(240, 98, 146);
 
         List<ProviderDef> defs = new List<ProviderDef>();
         List<ProviderStatus> statuses = new List<ProviderStatus>();
         DateTime? updated;
         bool busy;
-        RectangleF refreshRect, infoRect;
-        int hover;   // 0 none, 1 refresh, 2 info
+        RectangleF refreshRect, infoRect, settingsRect, donorsRect;
+        int hover;   // 0 none, 1 refresh, 2 info, 3 settings, 4 donors
         readonly ToolTip tip = new ToolTip();
         int hiddenAt;
         float s = 1f;
@@ -119,18 +122,20 @@ namespace UsageMonitor
                    + p.Infos.Count * LineH + (p.Note != null ? LineH : 0) + CardBottom;
         }
 
-        /// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit)
+        /// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit);
+        /// English: "↻ 2h 12m · 13:00" / "↻ 3d 2h · Thu 13:00".
         public static string ShortReset(DateTime? t)
         {
             if (!t.HasValue) return "";
             TimeSpan sp = t.Value - DateTime.Now;
-            if (sp.TotalSeconds <= 0) return "sudah reset";
+            if (sp.TotalSeconds <= 0) return L.T("sudah reset", "reset done");
+            string dd = L.T("h", "d"), hh = L.T("j", "h");
             string d;
-            if (sp.TotalDays >= 1) d = (int)sp.TotalDays + "h " + sp.Hours + "j";
-            else if (sp.TotalHours >= 1) d = (int)sp.TotalHours + "j " + sp.Minutes + "m";
+            if (sp.TotalDays >= 1) d = (int)sp.TotalDays + dd + " " + sp.Hours + hh;
+            else if (sp.TotalHours >= 1) d = (int)sp.TotalHours + hh + " " + sp.Minutes + "m";
             else d = Math.Max(1, (int)Math.Ceiling(sp.TotalMinutes)) + "m";
             DateTime r = t.Value.AddSeconds(30);
-            string when = r.Date == DateTime.Today ? r.ToString("HH':'mm") : r.ToString("ddd HH':'mm", Id);
+            string when = r.Date == DateTime.Today ? r.ToString("HH':'mm") : r.ToString("ddd HH':'mm", L.Culture);
             return "↻ " + d + " · " + when;
         }
 
@@ -146,25 +151,29 @@ namespace UsageMonitor
         {
             if (!t.HasValue) return "";
             TimeSpan sp = t.Value - DateTime.Now;
-            if (sp.TotalSeconds <= 0) return "Sudah reset - refresh untuk update";
+            if (sp.TotalSeconds <= 0) return L.T("Sudah reset - refresh untuk update", "Already reset - refresh to update");
             string d;
-            if (sp.TotalDays >= 1) d = (int)sp.TotalDays + " hari " + sp.Hours + " jam";
-            else if (sp.TotalHours >= 1) d = (int)sp.TotalHours + " jam " + sp.Minutes + " mnt";
-            else d = Math.Max(1, (int)Math.Ceiling(sp.TotalMinutes)) + " mnt";
+            if (sp.TotalDays >= 1) d = (int)sp.TotalDays + L.T(" hari ", " d ") + sp.Hours + L.T(" jam", " h");
+            else if (sp.TotalHours >= 1) d = (int)sp.TotalHours + L.T(" jam ", " h ") + sp.Minutes + L.T(" mnt", " min");
+            else d = Math.Max(1, (int)Math.Ceiling(sp.TotalMinutes)) + L.T(" mnt", " min");
             DateTime r = t.Value.AddSeconds(30);
             string when = r.Date == DateTime.Today ? r.ToString("HH':'mm")
-                : r.ToString("ddd d MMM, HH':'mm", Id);
-            return "Reset dalam " + d + "  ·  " + when;
+                : r.ToString(L.Id ? "ddd d MMM, HH':'mm" : "ddd MMM d, HH':'mm", L.Culture);
+            return L.T("Reset dalam ", "Resets in ") + d + "  ·  " + when;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            int h = refreshRect.Contains(e.Location) ? 1 : infoRect.Contains(e.Location) ? 2 : 0;
+            int h = refreshRect.Contains(e.Location) ? 1 : infoRect.Contains(e.Location) ? 2
+                  : settingsRect.Contains(e.Location) ? 3 : donorsRect.Contains(e.Location) ? 4 : 0;
             if (h == hover) return;
             hover = h;
             Cursor = h != 0 ? Cursors.Hand : Cursors.Default;
-            tip.SetToolTip(this, h == 1 ? (busy ? "Memuat…" : "Refresh") : h == 2 ? "Tentang & update" : "");
+            tip.SetToolTip(this, h == 1 ? (busy ? L.T("Memuat…", "Loading…") : "Refresh")
+                               : h == 2 ? L.T("Tentang & update", "About & update")
+                               : h == 3 ? L.T("Pengaturan", "Settings")
+                               : h == 4 ? L.T("Donatur & donasi", "Donors & donate") : "");
             Invalidate();
         }
 
@@ -179,23 +188,36 @@ namespace UsageMonitor
             base.OnMouseClick(e);
             if (refreshRect.Contains(e.Location) && !busy && RefreshRequested != null) RefreshRequested(this, EventArgs.Empty);
             else if (infoRect.Contains(e.Location) && InfoRequested != null) InfoRequested(this, EventArgs.Empty);
+            else if (donorsRect.Contains(e.Location) && DonorsRequested != null) DonorsRequested(this, EventArgs.Empty);
+            else if (settingsRect.Contains(e.Location) && SettingsRequested != null)
+                SettingsRequested(PointToScreen(new Point((int)settingsRect.Right, (int)settingsRect.Bottom)));
         }
 
-        /// Header icon buttons, right to left: (i) info, then the refresh arrow.
+        /// Header icon buttons, right to left: gear (settings), (i) info, refresh arrow, heart (donors).
         void DrawHeaderButtons(Graphics g)
         {
-            float bw = F(26), bh = F(24), top = F(6);
-            infoRect = new RectangleF(F(W - Pad + 4) - bw, top, bw, bh);
-            refreshRect = new RectangleF(infoRect.X - bw - F(2), top, bw, bh);
+            float bw = F(26), bh = F(24), top = F(6), gap = F(1);
+            settingsRect = new RectangleF(F(W - Pad + 4) - bw, top, bw, bh);
+            infoRect = new RectangleF(settingsRect.X - bw - gap, top, bw, bh);
+            refreshRect = new RectangleF(infoRect.X - bw - gap, top, bw, bh);
+            donorsRect = new RectangleF(refreshRect.X - bw - gap, top, bw, bh);
             using (var hb = new SolidBrush(Color.FromArgb(60, 60, 60)))
             {
-                if (hover == 1 && !busy) using (var p = Round(refreshRect, F(6))) g.FillPath(hb, p);
-                if (hover == 2) using (var p = Round(infoRect, F(6))) g.FillPath(hb, p);
+                RectangleF[] rects = { RectangleF.Empty, refreshRect, infoRect, settingsRect, donorsRect };
+                if (hover > 0 && !(hover == 1 && busy)) using (var p = Round(rects[hover], F(6))) g.FillPath(hb, p);
             }
             using (var sym = new Font("Segoe UI Symbol", F(15), GraphicsUnit.Pixel))
+            using (var gearF = new Font("Segoe UI Symbol", F(16), GraphicsUnit.Pixel))
+            using (var heartF = new Font("Segoe UI Symbol", F(14), GraphicsUnit.Pixel))
             using (var br = new SolidBrush(busy ? Muted : Fg))
+            using (var fgb = new SolidBrush(Fg))
+            using (var hrt = new SolidBrush(Heart))
             using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            {
                 g.DrawString("↻", sym, br, new RectangleF(refreshRect.X, refreshRect.Y - F(1), refreshRect.Width, refreshRect.Height), sf);
+                g.DrawString("\u2699", gearF, fgb, new RectangleF(settingsRect.X, settingsRect.Y - F(1), settingsRect.Width, settingsRect.Height), sf);
+                g.DrawString("\u2665", heartF, hrt, donorsRect, sf);
+            }
 
             // (i): circle outline, dot and stem
             float d = F(14), cx = infoRect.X + infoRect.Width / 2, cy = infoRect.Y + infoRect.Height / 2;
@@ -233,8 +255,8 @@ namespace UsageMonitor
                 }
 
                 string foot = updated.HasValue
-                    ? "Diperbarui " + updated.Value.ToString("HH:mm") + "  ·  tiap 5 menit"
-                    : "Belum ada data";
+                    ? L.T("Diperbarui ", "Updated ") + updated.Value.ToString("HH:mm") + L.T("  ·  tiap 5 menit", "  ·  every 5 minutes")
+                    : L.T("Belum ada data", "No data yet");
                 using (var tiny = new Font("Segoe UI", F(10.5f), GraphicsUnit.Pixel))
                     g.DrawString(foot, tiny, muted, F(Pad), y + F(5));
             }
@@ -279,7 +301,7 @@ namespace UsageMonitor
                 iy += F(CardHeader);
                 if (p == null)
                 {
-                    g.DrawString(busy ? "Memuat…" : "Belum ada data", lbl, muted, ix, iy + F(6));
+                    g.DrawString(busy ? L.T("Memuat…", "Loading…") : L.T("Belum ada data", "No data yet"), lbl, muted, ix, iy + F(6));
                 }
                 else if (p.Error != null)
                 {

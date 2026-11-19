@@ -17,8 +17,8 @@ struct ProviderStatus {
     var plan: String?
     var account: String?
     var error: String?
-    var five = UsageWindow(label: "5 jam")
-    var week = UsageWindow(label: "7 hari")
+    var five = UsageWindow(label: T("5 jam", "5 hours"))
+    var week = UsageWindow(label: T("7 hari", "7 days"))
     var moreRows: [UsageWindow] = []   // extra limits, e.g. Claude's weekly limit for one model
     var infos: [String] = []           // extra lines: Claude "Limit resets", ChatGPT "usage limit reset" credits
     var rows: [UsageWindow] { [five, week] + moreRows }
@@ -36,6 +36,39 @@ let refreshInterval: TimeInterval = 5 * 60
 let claudeAccent = Color(red: 217 / 255, green: 119 / 255, blue: 87 / 255)
 let gptAccent = Color(red: 16 / 255, green: 163 / 255, blue: 127 / 255)
 let homeDir = FileManager.default.homeDirectoryForCurrentUser
+
+// MARK: - Language
+
+/// The "language" setting is "" (follow macOS), "id" (Bahasa Indonesia) or "en" (English).
+enum Lang {
+    static let key = "language"
+
+    static var choice: String {
+        let v = UserDefaults.standard.string(forKey: key) ?? ""
+        return v == "id" || v == "en" ? v : ""
+    }
+
+    static func setChoice(_ c: String) {
+        UserDefaults.standard.set(c == "id" || c == "en" ? c : "", forKey: key)
+    }
+
+    /// True when the first preferred language of macOS is Indonesian.
+    static var systemIsIndonesian: Bool {
+        let first = (Locale.preferredLanguages.first ?? "").lowercased()
+        return first.hasPrefix("id") || first.hasPrefix("in")
+    }
+
+    static var isID: Bool {
+        let c = choice
+        return c == "id" || (c == "" && systemIsIndonesian)
+    }
+
+    /// Locale for day and month names ("Kam 13:00" / "Thu 13:00").
+    static var locale: Locale { Locale(identifier: isID ? "id_ID" : "en_US") }
+}
+
+/// Text in the current language.
+func T(_ indonesian: String, _ english: String) -> String { Lang.isID ? indonesian : english }
 
 // MARK: - Helpers
 
@@ -73,18 +106,20 @@ func httpGet(_ url: String, _ headers: [String: String]) async throws -> [String
     guard code == 200 else {
         throw FetchError.http(code, String(data: data.prefix(120), encoding: .utf8) ?? "")
     }
-    guard let obj = parseJSON(data) else { throw FetchError.message("Respons bukan JSON") }
+    guard let obj = parseJSON(data) else { throw FetchError.message(T("Respons bukan JSON", "Response is not JSON")) }
     return obj
 }
 
 func errorText(_ error: Error, cli: String) -> String {
     if case let FetchError.http(code, body) = error {
-        if code == 429 { return "Dibatasi server (429). Dicoba lagi otomatis." }
-        if code == 401 || code == 403 { return "Token ditolak (\(code)). Buka '\(cli)' agar token di-refresh." }
+        if code == 429 { return T("Dibatasi server (429). Dicoba lagi otomatis.", "Rate limited by the server (429). Retrying automatically.") }
+        if code == 401 || code == 403 {
+            return T("Token ditolak (\(code)). Buka '\(cli)' agar token di-refresh.", "Token rejected (\(code)). Open '\(cli)' to refresh it.")
+        }
         return "HTTP \(code): \(body)"
     }
     if case let FetchError.message(m) = error { return m }
-    return "Koneksi gagal: \(error.localizedDescription)"
+    return T("Koneksi gagal: ", "Connection failed: ") + error.localizedDescription
 }
 
 // MARK: - Claude
@@ -121,7 +156,7 @@ func grantName(_ gr: [String: Any]) -> String {
     let clears = Set(gr["clears"] as? [String] ?? [])
     if clears.contains("seven_day") { return "Full reset" }
     if clears.contains("seven_day_overage_included") { return "Fable reset" }
-    if clears.contains("five_hour") { return "Reset 5 jam" }
+    if clears.contains("five_hour") { return T("Reset 5 jam", "5-hour reset") }
     return "Limit reset"
 }
 
@@ -129,13 +164,13 @@ func grantExpiry(_ end: Date?) -> String {
     guard let end = end else { return "" }
     let e = end.addingTimeInterval(30)
     let f = DateFormatter()
-    f.locale = Locale(identifier: "id_ID")
+    f.locale = Lang.locale
     if Calendar.current.isDateInToday(e) {
         f.dateFormat = "HH:mm"
-        return " · s/d hari ini \(f.string(from: e))"
+        return T(" · s/d hari ini ", " · until today ") + f.string(from: e)
     }
-    f.dateFormat = "d MMM HH:mm"
-    return " · s/d \(f.string(from: e))"
+    f.dateFormat = Lang.isID ? "d MMM HH:mm" : "MMM d HH:mm"
+    return T(" · s/d ", " · until ") + f.string(from: e)
 }
 
 /// ChatGPT "usage limit resets" with expiry: "↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04".
@@ -149,7 +184,7 @@ func codexResetDetails(_ headers: [String: String]) async -> [String]? {
         let title = (c["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Usage limit reset"
         let end = (c["expires_at"] as? String).flatMap(parseISODate)
         let supported = (c["is_supported_by_plan"] as? Bool) ?? true
-        lines.append("↺ " + title + grantExpiry(end) + (supported ? "" : " (tidak didukung paket)"))
+        lines.append("↺ " + title + grantExpiry(end) + (supported ? "" : T(" (tidak didukung paket)", " (not supported by plan)")))
     }
     return lines
 }
@@ -157,12 +192,12 @@ func codexResetDetails(_ headers: [String: String]) async -> [String]? {
 func fetchClaude() async -> ProviderStatus {
     var s = ProviderStatus(name: "Claude")
     guard let creds = claudeCredentials(), let oauth = creds["claudeAiOauth"] as? [String: Any] else {
-        s.error = "Belum login. Jalankan 'claude' lalu /login."
+        s.error = T("Belum login. Jalankan 'claude' lalu /login.", "Not logged in. Run 'claude', then /login.")
         return s
     }
     s.plan = oauth["subscriptionType"] as? String
     guard let token = oauth["accessToken"] as? String, !token.isEmpty else {
-        s.error = "Token tidak ditemukan. Login ulang via claude CLI."
+        s.error = T("Token tidak ditemukan. Login ulang via claude CLI.", "Token not found. Log in again with the claude CLI.")
         return s
     }
     var cfgs = [homeDir.appendingPathComponent(".claude.json")]
@@ -176,7 +211,7 @@ func fetchClaude() async -> ProviderStatus {
         }
     }
     if let exp = num(oauth["expiresAt"]), Date(timeIntervalSince1970: exp / 1000) < Date() {
-        s.error = "Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh."
+        s.error = T("Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh.", "Token expired. Open 'claude' once to refresh it.")
         return s
     }
     do {
@@ -187,7 +222,7 @@ func fetchClaude() async -> ProviderStatus {
                                       "x-app": "cli", "User-Agent": claudeCliUserAgent])
         for (key, isFive) in [("five_hour", true), ("seven_day", false)] {
             guard let o = root[key] as? [String: Any] else { continue }
-            var w = UsageWindow(label: isFive ? "5 jam" : "7 hari")
+            var w = UsageWindow(label: isFive ? T("5 jam", "5 hours") : T("7 hari", "7 days"))
             w.percent = num(o["utilization"])
             if let r = o["resets_at"] as? String { w.resetAt = parseISODate(r) }
             if isFive { s.five = w } else { s.week = w }
@@ -198,7 +233,7 @@ func fetchClaude() async -> ProviderStatus {
             let kind = lim["kind"] as? String
             if kind == "session" || kind == "weekly_all" { continue } // same as five_hour / seven_day
             let group = lim["group"] as? String
-            let base = group == "session" ? "5 jam" : group == "weekly" ? "7 hari" : (group ?? kind ?? "Limit")
+            let base = group == "session" ? T("5 jam", "5 hours") : group == "weekly" ? T("7 hari", "7 days") : (group ?? kind ?? "Limit")
             let scope = lim["scope"] as? [String: Any] ?? [:]
             let name = ["model", "surface"].compactMap { (scope[$0] as? [String: Any])?["display_name"] as? String }.first
             var w = UsageWindow(label: name.map { base + " · " + $0 } ?? base)
@@ -211,8 +246,8 @@ func fetchClaude() async -> ProviderStatus {
         for gr in grants {
             let left = Int(num(gr["resets_left"]) ?? 0)
             if left <= 0 { continue }
-            let extra = (gr["paused"] as? Bool) == true ? " (dijeda)"
-                : (gr["usable_now"] as? Bool) == false ? " (belum bisa dipakai)" : ""
+            let extra = (gr["paused"] as? Bool) == true ? T(" (dijeda)", " (paused)")
+                : (gr["usable_now"] as? Bool) == false ? T(" (belum bisa dipakai)", " (not usable yet)") : ""
             let end = (gr["ends_at"] as? String).flatMap(parseISODate)
             s.infos.append("↺ " + grantName(gr) + (left > 1 ? " ×\(left)" : "") + grantExpiry(end) + extra)
         }
@@ -234,12 +269,12 @@ func fetchCodex() async -> ProviderStatus {
         codexHome = homeDir.appendingPathComponent(".codex")
     }
     guard let auth = readJSONFile(codexHome.appendingPathComponent("auth.json")) else {
-        s.error = "Belum login. Jalankan 'codex login'."
+        s.error = T("Belum login. Jalankan 'codex login'.", "Not logged in. Run 'codex login'.")
         return s
     }
     let tokens = auth["tokens"] as? [String: Any] ?? [:]
     guard let token = tokens["access_token"] as? String, !token.isEmpty else {
-        s.error = "Codex tidak login dengan akun ChatGPT (mode API key?)."
+        s.error = T("Codex tidak login dengan akun ChatGPT (mode API key?).", "Codex is not logged in with a ChatGPT account (API key mode?).")
         return s
     }
     var headers = ["Authorization": "Bearer \(token)"]
@@ -253,7 +288,7 @@ func fetchCodex() async -> ProviderStatus {
             guard let o = rl[key] as? [String: Any] else { continue }
             let isFive: Bool
             if let secs = num(o["limit_window_seconds"]) { isFive = secs <= 86400 } else { isFive = key == "primary_window" }
-            var w = UsageWindow(label: isFive ? "5 jam" : "7 hari")
+            var w = UsageWindow(label: isFive ? T("5 jam", "5 hours") : T("7 hari", "7 days"))
             w.percent = num(o["used_percent"])
             if let r = num(o["reset_at"]) { w.resetAt = Date(timeIntervalSince1970: r) }
             if isFive { s.five = w } else { s.week = w }
@@ -268,7 +303,8 @@ func fetchCodex() async -> ProviderStatus {
                 s.infos.append(contentsOf: details)
             } else {
                 let usable = num(credits["applicable_available_count"]) ?? 0
-                s.infos.append("↺ Usage limit reset: \(Int(available)) tersedia" + (usable > 0 ? " (bisa dipakai sekarang)" : ""))
+                s.infos.append("↺ Usage limit reset: \(Int(available))" + T(" tersedia", " available")
+                               + (usable > 0 ? T(" (bisa dipakai sekarang)", " (usable now)") : ""))
             }
         }
     } catch {
@@ -291,20 +327,22 @@ func levelColor(_ pct: Double) -> Color { Color(nsColor: levelNSColor(pct)) }
 
 func pctText(_ p: Double?) -> String { p.map { "\(Int($0.rounded()))%" } ?? "-" }
 
-/// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit)
+/// Compact reset label: "↻ 2j 12m · 13:00" / "↻ 3h 2j · Kam 13:00" (h = hari, j = jam, m = menit);
+/// English: "↻ 2h 12m · 13:00" / "↻ 3d 2h · Thu 13:00".
 func shortReset(_ date: Date?, now: Date = Date()) -> String {
     guard let date = date else { return "" }
     let secs = date.timeIntervalSince(now)
-    if secs <= 0 { return "sudah reset" }
+    if secs <= 0 { return T("sudah reset", "reset done") }
     let total = Int(secs)
     let days = total / 86400, hours = (total % 86400) / 3600, mins = (total % 3600) / 60
+    let dd = T("h", "d"), hh = T("j", "h")
     let d: String
-    if days >= 1 { d = "\(days)h \(hours)j" }
-    else if hours >= 1 { d = "\(hours)j \(mins)m" }
+    if days >= 1 { d = "\(days)\(dd) \(hours)\(hh)" }
+    else if hours >= 1 { d = "\(hours)\(hh) \(mins)m" }
     else { d = "\(max(1, Int((secs / 60).rounded(.up))))m" }
     let r = date.addingTimeInterval(30)
     let f = DateFormatter()
-    f.locale = Locale(identifier: "id_ID")
+    f.locale = Lang.locale
     f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "HH:mm" : "EEE HH:mm"
     return "↻ \(d) · \(f.string(from: r))"
 }
@@ -312,18 +350,18 @@ func shortReset(_ date: Date?, now: Date = Date()) -> String {
 func resetText(_ date: Date?, now: Date = Date()) -> String {
     guard let date = date else { return "" }
     let secs = date.timeIntervalSince(now)
-    if secs <= 0 { return "Sudah reset - refresh untuk update" }
+    if secs <= 0 { return T("Sudah reset - refresh untuk update", "Already reset - refresh to update") }
     let total = Int(secs)
     let days = total / 86400, hours = (total % 86400) / 3600, mins = (total % 3600) / 60
     let d: String
-    if days >= 1 { d = "\(days) hari \(hours) jam" }
-    else if hours >= 1 { d = "\(hours) jam \(mins) mnt" }
-    else { d = "\(max(1, Int((secs / 60).rounded(.up)))) mnt" }
+    if days >= 1 { d = "\(days)" + T(" hari ", " d ") + "\(hours)" + T(" jam", " h") }
+    else if hours >= 1 { d = "\(hours)" + T(" jam ", " h ") + "\(mins)" + T(" mnt", " min") }
+    else { d = "\(max(1, Int((secs / 60).rounded(.up))))" + T(" mnt", " min") }
     let r = date.addingTimeInterval(30)
     let f = DateFormatter()
-    f.locale = Locale(identifier: "id_ID")
-    f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "HH:mm" : "EEE d MMM, HH:mm"
-    return "Reset dalam \(d)  ·  \(f.string(from: r))"
+    f.locale = Lang.locale
+    f.dateFormat = Calendar.current.isDate(r, inSameDayAs: now) ? "HH:mm" : (Lang.isID ? "EEE d MMM, HH:mm" : "EEE MMM d, HH:mm")
+    return T("Reset dalam ", "Resets in ") + d + "  ·  " + f.string(from: r)
 }
 
 // MARK: - Login item (LaunchAgent)
@@ -402,6 +440,8 @@ final class Store: ObservableObject {
     @Published var busy = false
     @Published var now = Date()
     @Published var loginEnabled = LoginItem.isEnabled
+    /// Changes when the language is switched, so the views redraw their texts.
+    @Published var language = Lang.choice
     var pending = false
     var onUpdate: (@MainActor () -> Void)?
 
@@ -453,11 +493,12 @@ final class Store: ObservableObject {
             f.dateFormat = "HH:mm"
             if var prev = data[id], prev.error == nil {
                 // keep showing the last good data
-                prev.note = "Dibatasi server (429) · data \(prev.fetchedAt.map { f.string(from: $0) } ?? "-") · coba lagi \(f.string(from: retry))"
+                prev.note = T("Dibatasi server (429) · data ", "Rate limited (429) · data ") + (prev.fetchedAt.map { f.string(from: $0) } ?? "-")
+                    + T(" · coba lagi ", " · retry ") + f.string(from: retry)
                 data[id] = prev
                 return
             }
-            r.error = "Dibatasi server (429). Dicoba lagi \(f.string(from: retry))."
+            r.error = T("Dibatasi server (429). Dicoba lagi ", "Rate limited by the server (429). Retrying at ") + f.string(from: retry) + "."
         } else {
             backoffMin[id] = nil
             nextAllowed[id] = nil
@@ -490,6 +531,17 @@ final class Store: ObservableObject {
     func setLogin(_ on: Bool) {
         LoginItem.set(on)
         loginEnabled = LoginItem.isEnabled
+    }
+
+    /// Saves the language; texts from the last fetch are redone by a refresh.
+    func setLanguage(_ code: String) {
+        let wasID = Lang.isID
+        Lang.setChoice(code)
+        language = Lang.choice
+        guard Lang.isID != wasID else { return }
+        for k in Array(data.keys) { data[k]?.note = nil }
+        onUpdate?()
+        refresh()
     }
 }
 
@@ -569,7 +621,7 @@ struct ProviderCard: View {
                     }
                 }
             } else {
-                Text(busy ? "Memuat…" : "Belum ada data").font(.system(size: 12)).foregroundColor(.secondary)
+                Text(busy ? T("Memuat…", "Loading…") : T("Belum ada data", "No data yet")).font(.system(size: 12)).foregroundColor(.secondary)
             }
         }
         .padding(10)
@@ -582,12 +634,14 @@ struct ProviderCard: View {
 struct PopupView: View {
     @ObservedObject var store: Store
     var onInfo: @MainActor () -> Void = {}
+    var onDonors: @MainActor () -> Void = {}
+    var onSettings: @MainActor () -> Void = {}
 
     var footer: String {
-        guard let u = store.updated else { return "Belum ada data" }
+        guard let u = store.updated else { return T("Belum ada data", "No data yet") }
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
-        return "Diperbarui \(f.string(from: u))  ·  tiap 5 menit"
+        return T("Diperbarui ", "Updated ") + f.string(from: u) + T("  ·  tiap 5 menit", "  ·  every 5 minutes")
     }
 
     var body: some View {
@@ -595,17 +649,28 @@ struct PopupView: View {
             HStack(spacing: 4) {
                 Text("Usage Monitor").font(.system(size: 13, weight: .semibold))
                 Spacer()
+                Button { onDonors() } label: {
+                    Image(systemName: "heart.fill").font(.system(size: 13)).foregroundColor(.pink)
+                }
+                .buttonStyle(.borderless)
+                .help(T("Donatur & donasi", "Donors & donate"))
                 Button { store.refresh() } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
                 }
                 .buttonStyle(.borderless)
                 .disabled(store.busy)
-                .help(store.busy ? "Memuat…" : "Refresh")
+                .help(store.busy ? T("Memuat…", "Loading…") : "Refresh")
                 Button { onInfo() } label: {
                     Image(systemName: "info.circle").font(.system(size: 14))
                 }
                 .buttonStyle(.borderless)
-                .help("Tentang & update")
+                .help(T("Tentang & update", "About & update"))
+                // Gear: the same menu as a right-click on the menu bar icon
+                Button { onSettings() } label: {
+                    Image(systemName: "gearshape").font(.system(size: 14))
+                }
+                .buttonStyle(.borderless)
+                .help(T("Pengaturan", "Settings"))
             }
             ForEach(store.shown) { p in
                 ProviderCard(title: p.title, accent: p.accent, status: store.data[p.id], busy: store.busy, now: store.now)
@@ -613,12 +678,12 @@ struct PopupView: View {
             Text(footer).font(.system(size: 11)).foregroundColor(.secondary)
             Divider()
             HStack {
-                Toggle("Jalankan saat login", isOn: Binding(get: { store.loginEnabled },
-                                                           set: { store.setLogin($0) }))
+                Toggle(T("Jalankan saat login", "Run at login"), isOn: Binding(get: { store.loginEnabled },
+                                                                              set: { store.setLogin($0) }))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 12))
                 Spacer()
-                Button("Keluar") { NSApp.terminate(nil) }
+                Button(T("Keluar", "Quit")) { NSApp.terminate(nil) }
             }
         }
         .padding(10)
@@ -660,7 +725,7 @@ func makeIcon(_ statuses: [ProviderStatus?]) -> NSImage {
 }
 
 func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
-    guard let p = p else { return "\(title): memuat…" }
+    guard let p = p else { return title + T(": memuat…", ": loading…") }
     if p.error != nil { return "\(title): error" }
     return "\(title) 5h \(pctText(p.five.percent)) | 7d \(pctText(p.week.percent))"
 }
@@ -670,10 +735,14 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "2.0"
+    static let version = "2.1"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
+    /// Donor list and donation link, edited in the repository without a new release.
+    static let donorsURL = "https://raw.githubusercontent.com/\(repo)/main/donors.json"
+    /// Used when donors.json can't be loaded or has no donate_url.
+    static let donateURL = "https://lynk.id/narayait/rp8r1z3rop0w/checkout"
 }
 
 struct ReleaseInfo {
@@ -728,15 +797,17 @@ enum Updater {
         do {
             root = try await httpGet("https://api.github.com/repos/\(AppInfo.repo)/releases/latest", [:])
         } catch FetchError.http(let code, _) {
-            if code == 404 { throw FetchError.message("Belum ada rilis di GitHub.") }
-            if code == 403 || code == 429 { throw FetchError.message("GitHub membatasi permintaan. Coba lagi nanti.") }
-            throw FetchError.message("GitHub membalas HTTP \(code).")
+            if code == 404 { throw FetchError.message(T("Belum ada rilis di GitHub.", "No release on GitHub yet.")) }
+            if code == 403 || code == 429 {
+                throw FetchError.message(T("GitHub membatasi permintaan. Coba lagi nanti.", "GitHub is rate limiting requests. Try again later."))
+            }
+            throw FetchError.message(T("GitHub membalas HTTP ", "GitHub answered HTTP ") + "\(code).")
         } catch {
-            throw FetchError.message("Koneksi gagal: \(error.localizedDescription)")
+            throw FetchError.message(T("Koneksi gagal: ", "Connection failed: ") + error.localizedDescription)
         }
         let tag = root["tag_name"] as? String ?? ""
         guard let version = normalize(tag) ?? normalize(root["name"] as? String ?? "") else {
-            throw FetchError.message("Tag rilis tidak berisi nomor versi: \(tag)")
+            throw FetchError.message(T("Tag rilis tidak berisi nomor versi: ", "Release tag has no version number: ") + tag)
         }
         var r = ReleaseInfo(version: version, tag: tag,
                             notes: (root["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
@@ -782,7 +853,7 @@ enum Updater {
 
     /// Downloads the release file into the Downloads folder.
     static func download(_ r: ReleaseInfo) async throws -> URL {
-        guard let src = r.assetURL, let name = r.assetName else { throw FetchError.message("Rilis tidak berisi file.") }
+        guard let src = r.assetURL, let name = r.assetName else { throw FetchError.message(T("Rilis tidak berisi file.", "The release has no file.")) }
         var req = URLRequest(url: src)
         req.timeoutInterval = 60
         req.setValue(AppInfo.userAgent, forHTTPHeaderField: "User-Agent")
@@ -790,7 +861,7 @@ enum Updater {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             try? FileManager.default.removeItem(at: tmp)
-            throw FetchError.message("Unduhan gagal (HTTP \(code)).")
+            throw FetchError.message(T("Unduhan gagal", "Download failed") + " (HTTP \(code)).")
         }
         let dir = downloadsDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -843,7 +914,7 @@ final class UpdateModel: ObservableObject {
 
 @MainActor
 final class AboutModel: ObservableObject {
-    @Published var status = "Update dicek otomatis setiap aplikasi dibuka."
+    @Published var status = T("Update dicek otomatis setiap aplikasi dibuka.", "Updates are checked automatically every time the app starts.")
     @Published var statusColor = Color.secondary
     @Published var checking = false
     var onFound: (@MainActor (ReleaseInfo) -> Void)?
@@ -851,23 +922,23 @@ final class AboutModel: ObservableObject {
 
     func check() {
         checking = true
-        status = "Memeriksa update…"
+        status = T("Memeriksa update…", "Checking for updates…")
         statusColor = .secondary
         Task {
             do {
                 let r = try await Updater.fetchLatest()
                 self.checking = false
                 if Updater.isNewer(r) {
-                    self.status = "Versi \(r.version) tersedia."
+                    self.status = T("Versi \(r.version) tersedia.", "Version \(r.version) is available.")
                     self.statusColor = .accentColor
                     self.onFound?(r)
                 } else {
-                    self.status = "✓ Anda sudah memakai versi terbaru (\(AppInfo.version))."
+                    self.status = T("✓ Anda sudah memakai versi terbaru", "✓ You have the latest version") + " (\(AppInfo.version))."
                     self.statusColor = .green
                 }
             } catch let e {
                 self.checking = false
-                self.status = "Gagal memeriksa update: " + updateErrorText(e)
+                self.status = T("Gagal memeriksa update: ", "Update check failed: ") + updateErrorText(e)
                 self.statusColor = .red
             }
         }
@@ -906,12 +977,13 @@ struct UpdateView: View {
 
     var offer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Update tersedia").font(.system(size: 17, weight: .semibold))
-            Text("\(AppInfo.name) \(r.version) sudah tersedia. Versi Anda: \(AppInfo.version).")
+            Text(T("Update tersedia", "Update available")).font(.system(size: 17, weight: .semibold))
+            Text(T("\(AppInfo.name) \(r.version) sudah tersedia. Versi Anda: \(AppInfo.version).",
+                   "\(AppInfo.name) \(r.version) is available. You have version \(AppInfo.version)."))
                 .foregroundColor(.secondary)
-            Text("Yang baru di versi \(r.version):").font(.system(size: 13, weight: .semibold))
+            Text(T("Yang baru di versi \(r.version):", "What's new in version \(r.version):")).font(.system(size: 13, weight: .semibold))
             ScrollView {
-                Text(r.notes.isEmpty ? "(Tidak ada catatan rilis.)" : r.notes)
+                Text(r.notes.isEmpty ? T("(Tidak ada catatan rilis.)", "(No release notes.)") : r.notes)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -920,7 +992,8 @@ struct UpdateView: View {
             .background(Color.primary.opacity(0.06))
             .cornerRadius(6)
             if r.isSource {
-                Text("Rilis ini tidak berisi file khusus macOS, jadi yang diunduh adalah kode sumbernya.")
+                Text(T("Rilis ini tidak berisi file khusus macOS, jadi yang diunduh adalah kode sumbernya.",
+                       "This release has no macOS file, so the source code is downloaded instead."))
                     .font(.system(size: 11)).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -928,7 +1001,8 @@ struct UpdateView: View {
                 Text(e).font(.system(size: 12)).foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Skip: tawaran untuk versi \(r.version) tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi saat aplikasi dibuka berikutnya.")
+            Text(T("Skip: tawaran untuk versi \(r.version) tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi saat aplikasi dibuka berikutnya.",
+                   "Skip: version \(r.version) won't be offered again. Close this window to be reminded the next time the app starts."))
                 .font(.system(size: 11)).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -952,19 +1026,22 @@ struct UpdateView: View {
 
     var downloading: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Mengunduh update…").font(.system(size: 17, weight: .semibold))
-            Text("\(r.assetName ?? "") → folder Downloads").foregroundColor(.secondary)
+            Text(T("Mengunduh update…", "Downloading update…")).font(.system(size: 17, weight: .semibold))
+            Text((r.assetName ?? "") + T(" → folder Downloads", " → Downloads folder")).foregroundColor(.secondary)
             ProgressView().progressViewStyle(.linear)
         }
     }
 
     func done(_ url: URL) -> some View {
+        let file = url.lastPathComponent
         let step2 = r.isSource
-            ? "2. Ekstrak \(url.lastPathComponent), jalankan ./build.sh di folder macos, lalu ganti UsageMonitor.app di \(appFolder) dengan hasil build."
-            : "2. Buka/ekstrak \(url.lastPathComponent), lalu ganti UsageMonitor.app di \(appFolder) dengan yang baru."
+            ? T("2. Ekstrak \(file), jalankan ./build.sh di folder macos, lalu ganti UsageMonitor.app di \(appFolder) dengan hasil build.",
+                "2. Extract \(file), run ./build.sh in the macos folder, then replace UsageMonitor.app in \(appFolder) with the build.")
+            : T("2. Buka/ekstrak \(file), lalu ganti UsageMonitor.app di \(appFolder) dengan yang baru.",
+                "2. Open/extract \(file), then replace UsageMonitor.app in \(appFolder) with the new one.")
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Update berhasil diunduh").font(.system(size: 17, weight: .semibold))
-            Text("File tersimpan di:").foregroundColor(.secondary)
+            Text(T("Update berhasil diunduh", "Update downloaded")).font(.system(size: 17, weight: .semibold))
+            Text(T("File tersimpan di:", "Saved to:")).foregroundColor(.secondary)
             Text(url.path)
                 .font(.system(size: 11))
                 .textSelection(.enabled)
@@ -972,16 +1049,18 @@ struct UpdateView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.primary.opacity(0.06))
                 .cornerRadius(6)
-            Text("\(AppInfo.name) adalah aplikasi portable, jadi pindahkan file update secara manual:")
+            Text(T("\(AppInfo.name) adalah aplikasi portable, jadi pindahkan file update secara manual:",
+                   "\(AppInfo.name) is a portable app, so move the update into place yourself:"))
                 .fixedSize(horizontal: false, vertical: true)
-            Text("1. Keluar dari \(AppInfo.name) (tombol di bawah).\n\(step2)\n3. Jalankan UsageMonitor.app lagi.")
+            Text(T("1. Keluar dari \(AppInfo.name) (tombol di bawah).", "1. Quit \(AppInfo.name) (button below).")
+                 + "\n" + step2 + "\n" + T("3. Jalankan UsageMonitor.app lagi.", "3. Open UsageMonitor.app again."))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Tutup") { model.onClose?() }
-                Button("Keluar dari \(AppInfo.name)") { model.onQuit?() }
-                Button("Tampilkan di Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                Button(T("Tutup", "Close")) { model.onClose?() }
+                Button(T("Keluar dari ", "Quit ") + AppInfo.name) { model.onQuit?() }
+                Button(T("Tampilkan di Finder", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -1000,15 +1079,17 @@ struct AboutView: View {
                     .frame(width: 45, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(AppInfo.name).font(.system(size: 17, weight: .semibold))
-                    Text("Versi \(AppInfo.version)").foregroundColor(.secondary)
+                    Text(T("Versi ", "Version ") + AppInfo.version).foregroundColor(.secondary)
                 }
             }
-            Text("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari menu bar.")
+            Text(T("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari menu bar.",
+                   "Shows the remaining usage limits (5 hours & 7 days) of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts in the menu bar."))
                 .fixedSize(horizontal: false, vertical: true)
             if let url = URL(string: AppInfo.repoURL) {
                 Link(AppInfo.repoURL, destination: url)
             }
-            Text("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.")
+            Text(T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
+                   "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic or OpenAI."))
                 .font(.system(size: 11)).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(model.status)
@@ -1016,10 +1097,126 @@ struct AboutView: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Tutup") { model.onClose?() }
-                Button("Periksa update") { model.check() }
+                Button(T("Tutup", "Close")) { model.onClose?() }
+                Button(T("Periksa update", "Check for updates")) { model.check() }
                     .disabled(model.checking)
                     .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 380)
+    }
+}
+
+// MARK: - Donors
+
+struct Donor: Identifiable {
+    let id = UUID()
+    let name: String
+    let note: String?
+    let date: String?
+}
+
+/// Reads donors.json from the repository:
+/// { "donate_url": "https://...", "donors": [ { "name": "Budi", "note": "Semangat!", "date": "2026-11-19" } ] }
+func fetchDonors() async throws -> (donateURL: String, donors: [Donor]) {
+    let root: [String: Any]
+    do {
+        root = try await httpGet(AppInfo.donorsURL + "?t=\(Int(Date().timeIntervalSince1970))", [:])
+    } catch FetchError.http(let code, _) {
+        if code == 404 { return (AppInfo.donateURL, []) } // file not published yet
+        throw FetchError.message(T("GitHub membalas HTTP ", "GitHub answered HTTP ") + "\(code).")
+    } catch {
+        throw FetchError.message(T("Koneksi gagal: ", "Connection failed: ") + error.localizedDescription)
+    }
+    var url = AppInfo.donateURL
+    if let u = root["donate_url"] as? String, u.hasPrefix("https://") || u.hasPrefix("http://") { url = u }
+    var list: [Donor] = []
+    for item in root["donors"] as? [Any] ?? [] {
+        if let name = item as? String {
+            let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !n.isEmpty { list.append(Donor(name: n, note: nil, date: nil)) }
+        } else if let d = item as? [String: Any] {
+            let n = (d["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if n.isEmpty { continue }
+            list.append(Donor(name: n, note: (d["note"] as? String) ?? (d["message"] as? String), date: d["date"] as? String))
+        }
+    }
+    return (url, list)
+}
+
+@MainActor
+final class DonorsModel: ObservableObject {
+    @Published var loading = true
+    @Published var error: String?
+    @Published var donors: [Donor] = []
+    @Published var donateURL = AppInfo.donateURL
+    var onClose: (@MainActor () -> Void)?
+
+    init() {
+        Task {
+            do {
+                let r = try await fetchDonors()
+                self.donateURL = r.donateURL
+                self.donors = r.donors
+            } catch let e {
+                self.error = T("Daftar donatur gagal dimuat: ", "Couldn't load the donor list: ") + updateErrorText(e)
+            }
+            self.loading = false
+        }
+    }
+}
+
+/// Heart button: thanks the supporters listed in donors.json and links to the donation page.
+struct DonorsView: View {
+    @ObservedObject var model: DonorsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "heart.fill").foregroundColor(.pink)
+                Text(T("Dukung ", "Support ") + AppInfo.name).font(.system(size: 17, weight: .semibold))
+            }
+            Text(T("\(AppInfo.name) gratis dan open source. Donasi Anda membantu aplikasi ini terus dirawat dan dikembangkan.",
+                   "\(AppInfo.name) is free and open source. Your donation helps keep it maintained and improved."))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(T("Terima kasih kepada para donatur:", "Thank you to our donors:")).font(.system(size: 13, weight: .semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    if model.loading {
+                        Text(T("Memuat daftar donatur…", "Loading the donor list…")).foregroundColor(.secondary)
+                    } else if let e = model.error {
+                        Text(e).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+                    } else if model.donors.isEmpty {
+                        Text(T("Belum ada donatur. Jadilah yang pertama!", "No donors yet. Be the first!")).foregroundColor(.secondary)
+                    } else {
+                        ForEach(model.donors) { d in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("♥ " + d.name + (d.date.map { "  ·  " + $0 } ?? ""))
+                                if let n = d.note, !n.isEmpty {
+                                    Text(n).font(.system(size: 11)).foregroundColor(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .frame(height: 170)
+            .background(Color.primary.opacity(0.06))
+            .cornerRadius(6)
+            Text(T("Ingin nama Anda tercantum? Tulis nama di catatan donasi.", "Want your name listed? Add it to the donation note."))
+                .font(.system(size: 11)).foregroundColor(.secondary)
+            HStack {
+                Spacer()
+                Button(T("Tutup", "Close")) { model.onClose?() }
+                Button(T("Donasi", "Donate")) {
+                    if let u = URL(string: model.donateURL) { NSWorkspace.shared.open(u) }
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(18)
@@ -1041,19 +1238,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var aboutWindow: NSWindow?
     var updateWindow: NSWindow?
     var updateModel: UpdateModel?
+    var donorsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let b = statusItem.button {
             b.image = makeIcon(store.shown.map { _ in nil })
-            b.toolTip = "Usage Monitor - memuat…"
+            b.toolTip = T("Usage Monitor - memuat…", "Usage Monitor - loading…")
             b.action = #selector(statusClicked(_:))
             b.target = self
             b.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(
-            rootView: PopupView(store: store, onInfo: { [weak self] in self?.showAbout() }))
+            rootView: PopupView(store: store,
+                                onInfo: { [weak self] in self?.showAbout() },
+                                onDonors: { [weak self] in self?.showDonors() },
+                                onSettings: { [weak self] in self?.showMenu() }))
 
         store.onUpdate = { [weak self] in self?.didUpdate() }
         if canNotify {
@@ -1113,13 +1314,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showUpdate(r)
             }
             m.onClose = { [weak self] in self?.aboutWindow?.close() }
-            aboutWindow = makeWindow("Tentang \(AppInfo.name)", AboutView(model: m))
+            aboutWindow = makeWindow(T("Tentang ", "About ") + AppInfo.name, AboutView(model: m))
         }
         if let w = aboutWindow { present(w) }
     }
 
-    func showUpdate(_ r: ReleaseInfo) {
-        if let m = updateModel, let w = updateWindow, w.isVisible, Updater.compare(m.release.version, r.version) == 0 {
+    func showDonors() {
+        if popover.isShown { popover.performClose(nil) }
+        if donorsWindow == nil {
+            let m = DonorsModel()
+            m.onClose = { [weak self] in self?.donorsWindow?.close() }
+            donorsWindow = makeWindow(T("Donatur ", "Donors of ") + AppInfo.name, DonorsView(model: m))
+        }
+        if let w = donorsWindow { present(w) }
+    }
+
+    func showUpdate(_ r: ReleaseInfo, force: Bool = false) {
+        if !force, let m = updateModel, let w = updateWindow, w.isVisible, Updater.compare(m.release.version, r.version) == 0 {
             present(w)
             return
         }
@@ -1128,7 +1339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.onClose = { [weak self] in self?.updateWindow?.close() }
         m.onQuit = { NSApp.terminate(nil) }
         updateModel = m
-        let w = makeWindow("Update \(AppInfo.name)", UpdateView(model: m))
+        let w = makeWindow("Update " + AppInfo.name, UpdateView(model: m))
         updateWindow = w
         present(w)
     }
@@ -1150,12 +1361,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(menuItem("Tampilkan usage", #selector(menuShow)))
-        menu.addItem(menuItem("Refresh sekarang", #selector(menuRefresh)))
+        menu.addItem(menuItem(T("Tampilkan usage", "Show usage"), #selector(menuShow)))
+        menu.addItem(menuItem(T("Refresh sekarang", "Refresh now"), #selector(menuRefresh)))
         menu.addItem(.separator())
 
         // Provider selection: only CLIs installed on this Mac are listed
-        let header = NSMenuItem(title: "Tampilkan akun:", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: T("Tampilkan akun:", "Show accounts:"), action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         let shown = store.shown
@@ -1167,12 +1378,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
 
-        let login = menuItem("Jalankan saat login", #selector(menuToggleLogin))
+        let login = menuItem(T("Jalankan saat login", "Run at login"), #selector(menuToggleLogin))
         login.state = store.loginEnabled ? .on : .off
         menu.addItem(login)
-        menu.addItem(menuItem("Tentang & update…", #selector(menuAbout)))
+
+        // Language: follow macOS, or a fixed language
+        let langItem = NSMenuItem(title: T("Bahasa", "Language"), action: nil, keyEquivalent: "")
+        let langMenu = NSMenu()
+        langMenu.autoenablesItems = false
+        let systemName = Lang.systemIsIndonesian ? "Bahasa Indonesia" : "English"
+        for (code, name) in [("", T("Ikuti sistem", "Follow system") + " (\(systemName))"),
+                             ("id", "Bahasa Indonesia"), ("en", "English")] {
+            let item = menuItem(name, #selector(menuLanguage(_:)))
+            item.state = Lang.choice == code ? .on : .off
+            item.representedObject = code
+            langMenu.addItem(item)
+        }
+        langItem.submenu = langMenu
+        menu.addItem(langItem)
         menu.addItem(.separator())
-        menu.addItem(menuItem("Keluar", #selector(menuQuit)))
+
+        menu.addItem(menuItem(T("Donatur & donasi…", "Donors & donate…"), #selector(menuDonors)))
+        menu.addItem(menuItem(T("Tentang & update…", "About & update…"), #selector(menuAbout)))
+        menu.addItem(.separator())
+        menu.addItem(menuItem(T("Keluar", "Quit"), #selector(menuQuit)))
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
     }
@@ -1188,6 +1417,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func menuToggleLogin() { store.setLogin(!store.loginEnabled) }
     @objc func menuQuit() { NSApp.terminate(nil) }
     @objc func menuAbout() { showAbout() }
+    @objc func menuDonors() { showDonors() }
+    @objc func menuLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String, code != Lang.choice else { return }
+        let wasID = Lang.isID
+        store.setLanguage(code)
+        guard Lang.isID != wasID else { return }
+        // Reopen windows in the new language
+        for w in [aboutWindow, donorsWindow] { w?.close() }
+        aboutWindow = nil
+        donorsWindow = nil
+        if let m = updateModel, let w = updateWindow, w.isVisible {
+            if case .downloading = m.phase { return }
+            showUpdate(m.release, force: true)
+        }
+    }
     @objc func menuToggleProvider(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let p = store.installed.first(where: { $0.id == id }) else { return }
@@ -1214,17 +1458,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = shown.map { tipLine($0.title, store.data[$0.id]) }.joined(separator: "\n")
         for def in shown {
             guard let p = store.data[def.id], p.error == nil else { continue }
-            for w in p.rows { checkAlert(p, w.label, w) }
+            for (i, w) in p.rows.enumerated() { checkAlert(p, i, w) }
         }
     }
 
-    func checkAlert(_ p: ProviderStatus, _ label: String, _ w: UsageWindow) {
-        let key = p.name + label
+    /// Keyed by row position, not label, so switching the language doesn't repeat an alert.
+    func checkAlert(_ p: ProviderStatus, _ index: Int, _ w: UsageWindow) {
+        let key = "\(p.name)#\(index)"
+        let label = w.label
         let high = (w.percent ?? 0) >= 90
         if high && !(alerted[key] ?? false) && canNotify {
             let c = UNMutableNotificationContent()
-            c.title = "Usage \(p.name) tinggi"
-            c.body = "\(p.name) \(label): \(pctText(w.percent)) terpakai. \(resetText(w.resetAt))"
+            c.title = T("Usage \(p.name) tinggi", "\(p.name) usage is high")
+            c.body = "\(p.name) \(label): \(pctText(w.percent))" + T(" terpakai. ", " used. ") + resetText(w.resetAt)
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
         }
         alerted[key] = high

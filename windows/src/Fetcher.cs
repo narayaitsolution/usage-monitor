@@ -51,11 +51,11 @@ namespace UsageMonitor
             try
             {
                 string path = Path.Combine(Home, ".claude", ".credentials.json");
-                if (!File.Exists(path)) { s.Error = "Belum login. Jalankan 'claude' lalu /login."; return s; }
+                if (!File.Exists(path)) { s.Error = L.T("Belum login. Jalankan 'claude' lalu /login.", "Not logged in. Run 'claude', then /login."); return s; }
                 var oauth = Json.Obj(Json.Parse(File.ReadAllText(path)), "claudeAiOauth");
                 string token = Json.Str(oauth, "accessToken");
                 s.Plan = Json.Str(oauth, "subscriptionType");
-                if (string.IsNullOrEmpty(token)) { s.Error = "Token tidak ditemukan. Login ulang via claude CLI."; return s; }
+                if (string.IsNullOrEmpty(token)) { s.Error = L.T("Token tidak ditemukan. Login ulang via claude CLI.", "Token not found. Log in again with the claude CLI."); return s; }
 
                 // Email (optional) from ~/.claude.json
                 try
@@ -69,7 +69,7 @@ namespace UsageMonitor
                 double? exp = Json.Num(oauth, "expiresAt");
                 if (exp.HasValue && FromUnixMs(exp.Value) < DateTime.Now)
                 {
-                    s.Error = "Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh.";
+                    s.Error = L.T("Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh.", "Token expired. Open 'claude' once to refresh it.");
                     return s;
                 }
 
@@ -95,7 +95,7 @@ namespace UsageMonitor
                         string kind = Json.Str(l, "kind");
                         if (kind == "session" || kind == "weekly_all") continue; // same as five_hour / seven_day
                         string group = Json.Str(l, "group");
-                        string label = group == "session" ? "5 jam" : group == "weekly" ? "7 hari" : (group ?? kind ?? "Limit");
+                        string label = group == "session" ? L.T("5 jam", "5 hours") : group == "weekly" ? L.T("7 hari", "7 days") : (group ?? kind ?? "Limit");
                         string scope = ScopeName(Json.Obj(l, "scope"));
                         var w = new UsageWindow(scope != null ? label + " · " + scope : label);
                         w.Percent = Json.Num(l, "percent");
@@ -114,17 +114,17 @@ namespace UsageMonitor
                         if (!left.HasValue || left.Value <= 0) continue;
                         s.Infos.Add("↺ " + GrantName(gr) + (left.Value > 1 ? " ×" + left.Value : "")
                                     + GrantExpiry(ParseIso(Json.Str(gr, "ends_at")))
-                                    + (Json.Get(gr, "paused") is bool && (bool)Json.Get(gr, "paused") ? " (dijeda)"
-                                       : Json.Get(gr, "usable_now") is bool && !(bool)Json.Get(gr, "usable_now") ? " (belum bisa dipakai)" : ""));
+                                    + (Json.Get(gr, "paused") is bool && (bool)Json.Get(gr, "paused") ? L.T(" (dijeda)", " (paused)")
+                                       : Json.Get(gr, "usable_now") is bool && !(bool)Json.Get(gr, "usable_now") ? L.T(" (belum bisa dipakai)", " (not usable yet)") : ""));
                     }
                 }
             }
             catch (HttpException ex)
             {
                 s.RateLimited = ex.Code == 429;
-                s.Error = ex.Code == 429 ? "Dibatasi server (429). Dicoba lagi otomatis."
+                s.Error = ex.Code == 429 ? L.T("Dibatasi server (429). Dicoba lagi otomatis.", "Rate limited by the server (429). Retrying automatically.")
                     : ex.Code == 401 || ex.Code == 403
-                    ? "Token ditolak (" + ex.Code + "). Buka 'claude' agar token di-refresh."
+                    ? L.T("Token ditolak (", "Token rejected (") + ex.Code + L.T("). Buka 'claude' agar token di-refresh.", "). Open 'claude' to refresh it.")
                     : "HTTP " + ex.Code + ": " + ex.Message;
             }
             catch (Exception ex) { s.Error = ex.Message; }
@@ -150,11 +150,11 @@ namespace UsageMonitor
             foreach (object c in clears) set.Add(Convert.ToString(c));
             if (set.Contains("seven_day")) return "Full reset";
             if (set.Contains("seven_day_overage_included")) return "Fable reset";
-            if (set.Contains("five_hour")) return "Reset 5 jam";
+            if (set.Contains("five_hour")) return L.T("Reset 5 jam", "5-hour reset");
             return "Limit reset";
         }
 
-        /// ChatGPT "usage limit resets" with their expiry: "↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04".
+        /// ChatGPT "usage limit resets" with their expiry: "↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04" (English: "until Dec 2 05:04").
         /// Returns null when the request fails.
         static List<string> CodexResetDetails(Dictionary<string, string> headers)
         {
@@ -171,21 +171,19 @@ namespace UsageMonitor
                     bool supported = !(Json.Get(c, "is_supported_by_plan") is bool) || (bool)Json.Get(c, "is_supported_by_plan");
                     list.Add("↺ " + (string.IsNullOrEmpty(title) ? "Usage limit reset" : title)
                              + GrantExpiry(ParseIso(Json.Str(c, "expires_at")))
-                             + (supported ? "" : " (tidak didukung paket)"));
+                             + (supported ? "" : L.T(" (tidak didukung paket)", " (not supported by plan)")));
                 }
                 return list;
             }
             catch { return null; }
         }
 
-        static readonly CultureInfo IdCulture = new CultureInfo("id-ID");
-
         static string GrantExpiry(DateTime? end)
         {
             if (!end.HasValue) return "";
             DateTime e = end.Value.AddSeconds(30);
-            return " · s/d " + (e.Date == DateTime.Today ? "hari ini " + e.ToString("HH':'mm")
-                                                               : e.ToString("d MMM HH':'mm", IdCulture));
+            return L.T(" · s/d ", " · until ") + (e.Date == DateTime.Today ? L.T("hari ini ", "today ") + e.ToString("HH':'mm")
+                                                     : e.ToString(L.Id ? "d MMM HH':'mm" : "MMM d HH':'mm", L.Culture));
         }
 
         /// Display name of a limit's scope: {"model": {"display_name": "Fable"}, "surface": null}
@@ -214,11 +212,11 @@ namespace UsageMonitor
             try
             {
                 string path = Path.Combine(CodexHome(), "auth.json");
-                if (!File.Exists(path)) { s.Error = "Belum login. Jalankan 'codex login'."; return s; }
+                if (!File.Exists(path)) { s.Error = L.T("Belum login. Jalankan 'codex login'.", "Not logged in. Run 'codex login'."); return s; }
                 var tokens = Json.Obj(Json.Parse(File.ReadAllText(path)), "tokens");
                 string token = Json.Str(tokens, "access_token");
                 string account = Json.Str(tokens, "account_id");
-                if (string.IsNullOrEmpty(token)) { s.Error = "Codex tidak login dengan akun ChatGPT (mode API key?)."; return s; }
+                if (string.IsNullOrEmpty(token)) { s.Error = L.T("Codex tidak login dengan akun ChatGPT (mode API key?).", "Codex is not logged in with a ChatGPT account (API key mode?)."); return s; }
 
                 var h = new Dictionary<string, string>();
                 h["Authorization"] = "Bearer " + token;
@@ -255,17 +253,17 @@ namespace UsageMonitor
                     else
                     {
                         double? usable = Json.Num(credits, "applicable_available_count");
-                        s.Infos.Add("↺ Usage limit reset: " + available.Value + " tersedia"
-                                 + (usable.HasValue && usable.Value > 0 ? " (bisa dipakai sekarang)" : ""));
+                        s.Infos.Add("↺ Usage limit reset: " + available.Value + L.T(" tersedia", " available")
+                                 + (usable.HasValue && usable.Value > 0 ? L.T(" (bisa dipakai sekarang)", " (usable now)") : ""));
                     }
                 }
             }
             catch (HttpException ex)
             {
                 s.RateLimited = ex.Code == 429;
-                s.Error = ex.Code == 429 ? "Dibatasi server (429). Dicoba lagi otomatis."
+                s.Error = ex.Code == 429 ? L.T("Dibatasi server (429). Dicoba lagi otomatis.", "Rate limited by the server (429). Retrying automatically.")
                     : ex.Code == 401 || ex.Code == 403
-                    ? "Token ditolak (" + ex.Code + "). Jalankan 'codex' agar token di-refresh."
+                    ? L.T("Token ditolak (", "Token rejected (") + ex.Code + L.T("). Jalankan 'codex' agar token di-refresh.", "). Run 'codex' to refresh it.")
                     : "HTTP " + ex.Code + ": " + ex.Message;
             }
             catch (Exception ex) { s.Error = ex.Message; }

@@ -15,10 +15,14 @@ namespace UsageMonitor
     {
         public const string Name = "Usage Monitor";
         /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-        public const string Version = "2.0";
+        public const string Version = "2.1";
         public const string Repo = "narayaitsolution/usage-monitor";
         public const string RepoUrl = "https://github.com/" + Repo;
         public const string UserAgent = "UsageMonitor/" + Version;
+        /// Donor list and donation link, edited in the repository without a new release.
+        public const string DonorsUrl = "https://raw.githubusercontent.com/" + Repo + "/main/donors.json";
+        /// Used when donors.json can't be loaded or has no donate_url.
+        public const string DonateUrl = "https://lynk.id/narayait/rp8r1z3rop0w/checkout";
     }
 
     /// Settings in HKCU\Software\UsageMonitor (moved from the old "UsageTray" name on first run).
@@ -120,15 +124,15 @@ namespace UsageMonitor
             }
             catch (HttpException ex)
             {
-                if (ex.Code == 404) throw new Exception("Belum ada rilis di GitHub.");
-                if (ex.Code == 403 || ex.Code == 429) throw new Exception("GitHub membatasi permintaan. Coba lagi nanti.");
-                throw new Exception("GitHub membalas HTTP " + ex.Code + ".");
+                if (ex.Code == 404) throw new Exception(L.T("Belum ada rilis di GitHub.", "No release on GitHub yet."));
+                if (ex.Code == 403 || ex.Code == 429) throw new Exception(L.T("GitHub membatasi permintaan. Coba lagi nanti.", "GitHub is rate limiting requests. Try again later."));
+                throw new Exception(L.T("GitHub membalas HTTP ", "GitHub answered HTTP ") + ex.Code + ".");
             }
             object root = Json.Parse(body);
             var r = new ReleaseInfo();
             r.Tag = Json.Str(root, "tag_name") ?? "";
             r.Version = Normalize(r.Tag) ?? Normalize(Json.Str(root, "name") ?? "");
-            if (r.Version == null) throw new Exception("Tag rilis tidak berisi nomor versi: " + r.Tag);
+            if (r.Version == null) throw new Exception(L.T("Tag rilis tidak berisi nomor versi: ", "Release tag has no version number: ") + r.Tag);
             r.Notes = (Json.Str(root, "body") ?? "").Trim();
             r.PageUrl = Json.Str(root, "html_url") ?? AppInfo.RepoUrl + "/releases";
 
@@ -258,7 +262,7 @@ namespace UsageMonitor
             catch (WebException ex)
             {
                 try { File.Delete(tmp); } catch { }
-                throw new Exception("Unduhan gagal: " + ex.Message);
+                throw new Exception(L.T("Unduhan gagal: ", "Download failed: ") + ex.Message);
             }
             catch
             {

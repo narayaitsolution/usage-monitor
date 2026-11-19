@@ -2,8 +2,8 @@
 
 Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `claude` CLI) dan **ChatGPT** (login via Codex CLI) — jendela **5 jam** dan **7 hari**.
 
-- **Klik kiri** icon tray → popup berisi usage 5 jam & 7 hari, waktu reset, plan, dan email akun. Di pojok kanan atas ada tombol **↻** (refresh) dan **ⓘ** (tentang & update).
-- **Klik kanan** → Refresh sekarang, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat Windows start, Tentang & update…, Keluar.
+- **Klik kiri** icon tray → popup berisi usage 5 jam & 7 hari, waktu reset, plan, dan email akun. Di pojok kanan atas ada tombol **♥** (donatur), **↻** (refresh), **ⓘ** (tentang & update), dan **⚙** (pengaturan: menu yang sama dengan klik kanan).
+- **Klik kanan** → Refresh sekarang, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat Windows start, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
   - Pilihan akun hanya berisi CLI yang terpasang di komputer ini (folder `~/.claude` / `~/.codex` ada, atau perintah `claude` / `codex` ada di PATH).
   - Minimal satu akun harus tercentang. Pilihan disimpan di `HKCU\Software\UsageMonitor`.
 - **Hover** → ringkasan, misalnya `Claude 5h 8% | 7d 45%`.
@@ -46,6 +46,7 @@ UsageMonitor.exe --test hasil.txt       :: ambil data kedua provider, tulis ring
 UsageMonitor.exe --preview popup.png    :: render popup dengan data asli ke PNG
 UsageMonitor.exe --preview-about a.png  :: render jendela Tentang ke PNG
 UsageMonitor.exe --preview-update u.png :: render jendela Update (contoh rilis) ke PNG
+UsageMonitor.exe --preview-donors d.png :: render jendela Donatur ke PNG
 UsageMonitor.exe --check-update c.txt   :: cek rilis terbaru di GitHub, tulis hasilnya ke file
 ```
 
@@ -74,9 +75,10 @@ Jika token kedaluwarsa atau ditolak (401/403), popup meminta kamu membuka `claud
 | `src/Http.cs` | HTTP GET helper + `HttpException` |
 | `src/Json.cs` | Helper parsing JSON (`JavaScriptSerializer`) |
 | `src/TrayContext.cs` | Icon tray, menu, timer refresh, notifikasi, startup |
-| `src/PopupForm.cs` | Popup yang digambar custom (DPI-aware), aturan warna bar, tombol ↻ dan ⓘ |
+| `src/PopupForm.cs` | Popup yang digambar custom (DPI-aware), aturan warna bar, tombol ♥ ↻ ⓘ ⚙ |
 | `src/Updater.cs` | `AppInfo` (nama & versi), `Settings` (registry + migrasi dari UsageTray), cek & unduh update dari GitHub |
-| `src/UpdateForms.cs` | Jendela **Tentang** (ⓘ) dan **Update** (tema gelap) |
+| `src/UpdateForms.cs` | Jendela **Tentang** (ⓘ), **Update**, dan **Donatur** (♥) (tema gelap) |
+| `src/I18n.cs` | Pilihan bahasa: ikuti sistem / Bahasa Indonesia / English (`L.T("…", "…")`) |
 
 Catatan: compiler bawaan hanya mendukung **C# 5** — jangan pakai string interpolation (`$"..."`), `?.`, `nameof`, atau expression-bodied members.
 

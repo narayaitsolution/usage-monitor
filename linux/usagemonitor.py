@@ -25,10 +25,13 @@ REFRESH_SECONDS = 5 * 60
 APP_ID = "usagemonitor"
 APP_NAME = "Usage Monitor"
 # Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-VERSION = "2.0"
+VERSION = "2.1"
 REPO = "narayaitsolution/usage-monitor"
 REPO_URL = "https://github.com/" + REPO
 USER_AGENT = "UsageMonitor/" + VERSION
+# Donor list and donation link, edited in the repository without a new release
+DONORS_URL = "https://raw.githubusercontent.com/%s/main/donors.json" % REPO
+DONATE_URL = "https://lynk.id/narayait/rp8r1z3rop0w/checkout"  # used when donors.json has no donate_url
 
 GREEN = (63, 185, 80)
 ORANGE = (240, 136, 62)
@@ -36,6 +39,54 @@ RED = (229, 72, 77)
 
 DAYS_ID = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
 MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+DAYS_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+# ---------------------------------------------------------------- language
+# The "language" setting is "" (follow the system), "id" (Bahasa Indonesia) or "en" (English).
+_lang_id = None
+
+
+def lang_choice():
+    v = load_settings().get("language")
+    return v if v in ("id", "en") else ""
+
+
+def set_lang_choice(choice):
+    global _lang_id
+    save_setting("language", choice if choice in ("id", "en") else "")
+    _lang_id = None
+
+
+def system_is_indonesian():
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        v = os.environ.get(var)
+        if v:
+            first = v.split(":")[0].lower()
+            return first.startswith("id") or first.startswith("in_")
+    return False
+
+
+def is_id():
+    global _lang_id
+    if _lang_id is None:
+        c = lang_choice()
+        _lang_id = c == "id" or (c == "" and system_is_indonesian())
+    return _lang_id
+
+
+def T(indonesian, english):
+    """Text in the current language."""
+    return indonesian if is_id() else english
+
+
+def day_name(d):
+    return (DAYS_ID if is_id() else DAYS_EN)[d.weekday()]
+
+
+def month_name(d):
+    return (MONTHS_ID if is_id() else MONTHS_EN)[d.month - 1]
 
 
 # ---------------------------------------------------------------- data
@@ -52,8 +103,8 @@ class ProviderStatus:
         self.plan = None
         self.account = None
         self.error = None
-        self.five = UsageWindow("5 jam")
-        self.week = UsageWindow("7 hari")
+        self.five = UsageWindow(T("5 jam", "5 hours"))
+        self.week = UsageWindow(T("7 hari", "7 days"))
         self.more_rows = []        # extra limits, e.g. Claude's weekly limit for one model
         self.infos = []            # extra lines: Claude "Limit resets", ChatGPT "usage limit reset" credits
         self.rate_limited = False  # server answered HTTP 429
@@ -92,7 +143,7 @@ def http_get(url, headers):
             pass
         raise HttpError(e.code, body or e.reason)
     except urllib.error.URLError as e:
-        raise Exception("Koneksi gagal: %s" % e.reason)
+        raise Exception(T("Koneksi gagal: %s", "Connection failed: %s") % e.reason)
 
 
 def read_json(path):
@@ -123,7 +174,7 @@ def grant_name(gr):
     if "seven_day_overage_included" in clears:
         return "Fable reset"
     if "five_hour" in clears:
-        return "Reset 5 jam"
+        return T("Reset 5 jam", "5-hour reset")
     return "Limit reset"
 
 
@@ -132,8 +183,10 @@ def grant_expiry(end):
         return ""
     e = end.astimezone() + timedelta(seconds=30)
     if e.date() == datetime.now().date():
-        return " \u00B7 s/d hari ini " + e.strftime("%H:%M")
-    return " \u00B7 s/d %d %s %s" % (e.day, MONTHS_ID[e.month - 1], e.strftime("%H:%M"))
+        return T(" \u00B7 s/d hari ini ", " \u00B7 until today ") + e.strftime("%H:%M")
+    if is_id():
+        return " \u00B7 s/d %d %s %s" % (e.day, month_name(e), e.strftime("%H:%M"))
+    return " \u00B7 until %s %d %s" % (month_name(e), e.day, e.strftime("%H:%M"))
 
 
 def codex_reset_details(headers):
@@ -149,7 +202,7 @@ def codex_reset_details(headers):
             continue
         lines.append("↺ %s%s%s" % (c.get("title") or "Usage limit reset",
                                          grant_expiry(parse_iso(c.get("expires_at"))),
-                                         "" if c.get("is_supported_by_plan", True) else " (tidak didukung paket)"))
+                                         "" if c.get("is_supported_by_plan", True) else T(" (tidak didukung paket)", " (not supported by plan)")))
     return lines
 
 
@@ -158,13 +211,13 @@ def fetch_claude():
     try:
         path = os.path.join(claude_dir(), ".credentials.json")
         if not os.path.exists(path):
-            s.error = "Belum login. Jalankan 'claude' lalu /login."
+            s.error = T("Belum login. Jalankan 'claude' lalu /login.", "Not logged in. Run 'claude', then /login.")
             return s
         oauth = read_json(path).get("claudeAiOauth") or {}
         token = oauth.get("accessToken")
         s.plan = oauth.get("subscriptionType")
         if not token:
-            s.error = "Token tidak ditemukan. Login ulang via claude CLI."
+            s.error = T("Token tidak ditemukan. Login ulang via claude CLI.", "Token not found. Log in again with the claude CLI.")
             return s
         for cfg in (os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", HOME), ".claude.json"),
                     os.path.join(HOME, ".claude.json")):
@@ -176,7 +229,7 @@ def fetch_claude():
                 pass
         exp = num(oauth.get("expiresAt"))
         if exp and exp / 1000 < time.time():
-            s.error = "Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh."
+            s.error = T("Token kedaluwarsa. Buka 'claude' sekali agar token di-refresh.", "Token expired. Open 'claude' once to refresh it.")
             return s
         # The server only lists "Limit resets" (cedar_ember.grants) for official clients,
         # so this request identifies itself as claude-cli, like `/usage` does.
@@ -194,7 +247,7 @@ def fetch_claude():
             if kind in ("session", "weekly_all"):
                 continue  # same as five_hour / seven_day
             group = lim.get("group")
-            label = {"session": "5 jam", "weekly": "7 hari"}.get(group, group or kind or "Limit")
+            label = {"session": T("5 jam", "5 hours"), "weekly": T("7 hari", "7 days")}.get(group, group or kind or "Limit")
             scope = lim.get("scope") or {}
             name = next(((scope.get(k) or {}).get("display_name") for k in ("model", "surface")
                          if (scope.get(k) or {}).get("display_name")), None)
@@ -207,13 +260,15 @@ def fetch_claude():
             left = num(gr.get("resets_left")) or 0
             if left <= 0:
                 continue
-            extra = " (dijeda)" if gr.get("paused") else " (belum bisa dipakai)" if gr.get("usable_now") is False else ""
+            extra = (T(" (dijeda)", " (paused)") if gr.get("paused") else
+                     T(" (belum bisa dipakai)", " (not usable yet)") if gr.get("usable_now") is False else "")
             s.infos.append("\u21BA %s%s%s%s" % (grant_name(gr), " \u00D7%d" % left if left > 1 else "",
                                                  grant_expiry(parse_iso(gr.get("ends_at"))), extra))
     except HttpError as e:
         s.rate_limited = e.code == 429
-        s.error = ("Dibatasi server (429). Dicoba lagi otomatis." if e.code == 429 else
-                   "Token ditolak (%d). Buka 'claude' agar token di-refresh." % e.code
+        s.error = (T("Dibatasi server (429). Dicoba lagi otomatis.", "Rate limited by the server (429). Retrying automatically.")
+                   if e.code == 429 else
+                   T("Token ditolak (%d). Buka 'claude' agar token di-refresh.", "Token rejected (%d). Open 'claude' to refresh it.") % e.code
                    if e.code in (401, 403) else "HTTP %d: %s" % (e.code, e))
     except Exception as e:
         s.error = str(e)
@@ -226,12 +281,12 @@ def fetch_codex():
         codex_home = os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
         path = os.path.join(codex_home, "auth.json")
         if not os.path.exists(path):
-            s.error = "Belum login. Jalankan 'codex login'."
+            s.error = T("Belum login. Jalankan 'codex login'.", "Not logged in. Run 'codex login'.")
             return s
         tokens = read_json(path).get("tokens") or {}
         token = tokens.get("access_token")
         if not token:
-            s.error = "Codex tidak login dengan akun ChatGPT (mode API key?)."
+            s.error = T("Codex tidak login dengan akun ChatGPT (mode API key?).", "Codex is not logged in with a ChatGPT account (API key mode?).")
             return s
         h = {"Authorization": "Bearer " + token}
         if tokens.get("account_id"):
@@ -265,11 +320,13 @@ def fetch_codex():
                 s.infos.extend(details)
             else:
                 usable = num(credits.get("applicable_available_count")) or 0
-                s.infos.append("\u21BA Usage limit reset: %d tersedia%s" % (available, " (bisa dipakai sekarang)" if usable > 0 else ""))
+                s.infos.append(T("\u21BA Usage limit reset: %d tersedia%s", "\u21BA Usage limit reset: %d available%s")
+                               % (available, T(" (bisa dipakai sekarang)", " (usable now)") if usable > 0 else ""))
     except HttpError as e:
         s.rate_limited = e.code == 429
-        s.error = ("Dibatasi server (429). Dicoba lagi otomatis." if e.code == 429 else
-                   "Token ditolak (%d). Jalankan 'codex' agar token di-refresh." % e.code
+        s.error = (T("Dibatasi server (429). Dicoba lagi otomatis.", "Rate limited by the server (429). Retrying automatically.")
+                   if e.code == 429 else
+                   T("Token ditolak (%d). Jalankan 'codex' agar token di-refresh.", "Token rejected (%d). Run 'codex' to refresh it.") % e.code
                    if e.code in (401, 403) else "HTTP %d: %s" % (e.code, e))
     except Exception as e:
         s.error = str(e)
@@ -304,42 +361,45 @@ def reset_text(dt):
     sp = local - datetime.now().astimezone()
     secs = sp.total_seconds()
     if secs <= 0:
-        return "Sudah reset - refresh untuk update"
+        return T("Sudah reset - refresh untuk update", "Already reset - refresh to update")
     days, rem = divmod(int(secs), 86400)
     hours, rem = divmod(rem, 3600)
     mins = rem // 60
     if days >= 1:
-        d = "%d hari %d jam" % (days, hours)
+        d = T("%d hari %d jam", "%d d %d h") % (days, hours)
     elif hours >= 1:
-        d = "%d jam %d mnt" % (hours, mins)
+        d = T("%d jam %d mnt", "%d h %d min") % (hours, mins)
     else:
-        d = "%d mnt" % max(1, -(-int(secs) // 60))
+        d = T("%d mnt", "%d min") % max(1, -(-int(secs) // 60))
     r = local + timedelta(seconds=30)
     if r.date() == datetime.now().date():
         when = r.strftime("%H:%M")
+    elif is_id():
+        when = "%s %d %s, %s" % (day_name(r), r.day, month_name(r), r.strftime("%H:%M"))
     else:
-        when = "%s %d %s, %s" % (DAYS_ID[r.weekday()], r.day, MONTHS_ID[r.month - 1], r.strftime("%H:%M"))
-    return "Reset dalam %s  ·  %s" % (d, when)
+        when = "%s %s %d, %s" % (day_name(r), month_name(r), r.day, r.strftime("%H:%M"))
+    return T("Reset dalam %s  ·  %s", "Resets in %s  ·  %s") % (d, when)
 
 
 def short_reset(dt):
-    """Compact reset label: '↻ 2j 12m · 13:00' / '↻ 3h 2j · Kam 13:00' (h = hari, j = jam, m = menit)."""
+    """Compact reset label: '↻ 2j 12m · 13:00' / '↻ 3h 2j · Kam 13:00' (h = hari, j = jam, m = menit);
+    English: '↻ 2h 12m · 13:00' / '↻ 3d 2h · Thu 13:00'."""
     if dt is None:
         return ""
     local = dt.astimezone()
     secs = (local - datetime.now().astimezone()).total_seconds()
     if secs <= 0:
-        return "sudah reset"
+        return T("sudah reset", "reset done")
     days, rem = divmod(int(secs), 86400)
     hours, rem = divmod(rem, 3600)
     if days >= 1:
-        d = "%dh %dj" % (days, hours)
+        d = T("%dh %dj", "%dd %dh") % (days, hours)
     elif hours >= 1:
-        d = "%dj %dm" % (hours, rem // 60)
+        d = T("%dj %dm", "%dh %dm") % (hours, rem // 60)
     else:
         d = "%dm" % max(1, -(-int(secs) // 60))
     r = local + timedelta(seconds=30)
-    when = r.strftime("%H:%M") if r.date() == datetime.now().date() else "%s %s" % (DAYS_ID[r.weekday()], r.strftime("%H:%M"))
+    when = r.strftime("%H:%M") if r.date() == datetime.now().date() else "%s %s" % (day_name(r), r.strftime("%H:%M"))
     return "↻ %s · %s" % (d, when)
 
 
@@ -545,15 +605,15 @@ def fetch_latest():
         root = http_get("https://api.github.com/repos/%s/releases/latest" % REPO, {})
     except HttpError as e:
         if e.code == 404:
-            raise Exception("Belum ada rilis di GitHub.")
+            raise Exception(T("Belum ada rilis di GitHub.", "No release on GitHub yet."))
         if e.code in (403, 429):
-            raise Exception("GitHub membatasi permintaan. Coba lagi nanti.")
-        raise Exception("GitHub membalas HTTP %d." % e.code)
+            raise Exception(T("GitHub membatasi permintaan. Coba lagi nanti.", "GitHub is rate limiting requests. Try again later."))
+        raise Exception(T("GitHub membalas HTTP %d.", "GitHub answered HTTP %d.") % e.code)
     r = ReleaseInfo()
     r.tag = root.get("tag_name") or ""
     r.version = normalize_version(r.tag) or normalize_version(root.get("name") or "")
     if not r.version:
-        raise Exception("Tag rilis tidak berisi nomor versi: " + r.tag)
+        raise Exception(T("Tag rilis tidak berisi nomor versi: ", "Release tag has no version number: ") + r.tag)
     r.notes = (root.get("body") or "").strip()
     r.page_url = root.get("html_url") or r.page_url
     best = 0
@@ -621,8 +681,38 @@ def download_release(rel, progress=None):
         except OSError:
             pass
         if isinstance(e, urllib.error.URLError):
-            raise Exception("Unduhan gagal: %s" % getattr(e, "reason", e))
+            raise Exception(T("Unduhan gagal: %s", "Download failed: %s") % getattr(e, "reason", e))
         raise
+
+
+class DonorList:
+    def __init__(self):
+        self.donate_url = DONATE_URL
+        self.donors = []   # dicts with "name" and optional "note", "date"
+
+
+def fetch_donors():
+    """donors.json from the repository:
+    { "donate_url": "https://...", "donors": [ { "name": "Budi", "note": "Semangat!", "date": "2026-11-19" } ] }"""
+    lst = DonorList()
+    try:
+        root = http_get(DONORS_URL + "?t=%d" % int(time.time()), {})
+    except HttpError as e:
+        if e.code == 404:
+            return lst  # file not published yet
+        raise Exception(T("GitHub membalas HTTP %d.", "GitHub answered HTTP %d.") % e.code)
+    url = root.get("donate_url") if isinstance(root, dict) else None
+    if isinstance(url, str) and url.startswith(("https://", "http://")):
+        lst.donate_url = url
+    for d in (root.get("donors") if isinstance(root, dict) else None) or []:
+        if isinstance(d, str):
+            d = {"name": d}
+        if not isinstance(d, dict):
+            continue
+        name = str(d.get("name") or "").strip()
+        if name:
+            lst.donors.append({"name": name, "note": d.get("note") or d.get("message"), "date": d.get("date")})
+    return lst
 
 
 # ---------------------------------------------------------------- GUI
@@ -632,18 +722,18 @@ def load_gui():
         gi.require_version("Gtk", "3.0")
         from gi.repository import GLib, Gtk
     except (ImportError, ValueError):
-        sys.exit("PyGObject/GTK3 tidak ditemukan. Lihat README untuk dependensi.")
+        sys.exit(T("PyGObject/GTK3 tidak ditemukan. Lihat README untuk dependensi.", "PyGObject/GTK3 not found. See the README for dependencies."))
     for name in ("AyatanaAppIndicator3", "AppIndicator3"):
         try:
             gi.require_version(name, "0.1")
             return Gtk, GLib, importlib.import_module("gi.repository." + name)
         except (ImportError, ValueError):
             continue
-    sys.exit("AppIndicator tidak ditemukan. Ubuntu/Debian: sudo apt install gir1.2-ayatanaappindicator3-0.1")
+    sys.exit(T("AppIndicator tidak ditemukan.", "AppIndicator not found.") + " Ubuntu/Debian: sudo apt install gir1.2-ayatanaappindicator3-0.1")
 
 
 class DialogBase:
-    """Small always-on-top window (About / Update)."""
+    """Small always-on-top window (About / Update / Donors)."""
 
     def __init__(self, app, title):
         self.app = app
@@ -730,14 +820,16 @@ class UpdateWindow(DialogBase):
     def __init__(self, app, rel):
         DialogBase.__init__(self, app, "Update " + APP_NAME)
         self.rel = rel
+        self.busy = False   # downloading: not rebuilt for a language change
         self.show_offer(None)
 
     def show_offer(self, error):
         r = self.rel
         box = self.new_box()
-        self.text(box, "Update tersedia", size="large", bold=True)
-        self.text(box, "%s %s sudah tersedia. Versi Anda: %s." % (APP_NAME, r.version, VERSION), dim=True)
-        self.text(box, "Yang baru di versi %s:" % r.version, bold=True)
+        self.text(box, T("Update tersedia", "Update available"), size="large", bold=True)
+        self.text(box, T("%s %s sudah tersedia. Versi Anda: %s.", "%s %s is available. You have version %s.")
+                  % (APP_NAME, r.version, VERSION), dim=True)
+        self.text(box, T("Yang baru di versi %s:", "What's new in version %s:") % r.version, bold=True)
         view = self.Gtk.TextView()
         view.set_editable(False)
         view.set_cursor_visible(False)
@@ -745,19 +837,22 @@ class UpdateWindow(DialogBase):
         view.set_left_margin(8)
         view.set_right_margin(8)
         view.set_top_margin(6)
-        view.get_buffer().set_text(r.notes or "(Tidak ada catatan rilis.)")
+        view.get_buffer().set_text(r.notes or T("(Tidak ada catatan rilis.)", "(No release notes.)"))
         sw = self.Gtk.ScrolledWindow()
         sw.set_size_request(420, 150)
         sw.set_shadow_type(self.Gtk.ShadowType.IN)
         sw.add(view)
         box.pack_start(sw, False, False, 0)
         if r.is_source:
-            self.text(box, "Rilis ini tidak berisi file khusus Linux, jadi yang diunduh adalah kode sumbernya.",
+            self.text(box, T("Rilis ini tidak berisi file khusus Linux, jadi yang diunduh adalah kode sumbernya.",
+                             "This release has no Linux file, so the source code is downloaded instead."),
                       size="small", dim=True)
         if error:
             self.text(box, error, size="small", color="#e5484d")
-        self.text(box, "Skip: tawaran untuk versi %s tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi "
-                       "saat aplikasi dibuka berikutnya." % r.version, size="small", dim=True)
+        self.text(box, T("Skip: tawaran untuk versi %s tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi "
+                         "saat aplikasi dibuka berikutnya.",
+                         "Skip: version %s won't be offered again. Close this window to be reminded "
+                         "the next time the app starts.") % r.version, size="small", dim=True)
         self.buttons(box, ("Update", self.start_download), ("Skip", self.skip))
         self.present()
 
@@ -766,13 +861,14 @@ class UpdateWindow(DialogBase):
         self.close()
 
     def start_download(self, *_):
+        self.busy = True
         if not self.rel.asset_url:
             subprocess.Popen(["xdg-open", self.rel.page_url])
             self.close()
             return
         box = self.new_box()
-        self.text(box, "Mengunduh update…", size="large", bold=True)
-        self.text(box, "%s → folder Downloads" % self.rel.asset_name, dim=True)
+        self.text(box, T("Mengunduh update…", "Downloading update…"), size="large", bold=True)
+        self.text(box, T("%s → folder Downloads", "%s → Downloads folder") % self.rel.asset_name, dim=True)
         bar = self.Gtk.ProgressBar()
         bar.set_show_text(True)
         box.pack_start(bar, False, False, 4)
@@ -789,29 +885,37 @@ class UpdateWindow(DialogBase):
             if pct >= 0:
                 self.app.GLib.idle_add(lambda: (None if self.closed else bar.set_fraction(max(0.001, pct / 100.0))) and False)
 
-        self.run_async(lambda: download_release(self.rel, progress),
-                       lambda path, err: self.show_offer(str(err)) if err else self.show_done(path))
+        def done(path, err):
+            self.busy = False
+            if err:
+                self.show_offer(str(err))
+            else:
+                self.show_done(path)
+        self.run_async(lambda: download_release(self.rel, progress), done)
 
     def show_done(self, path):
         script = os.path.abspath(__file__)
         name = os.path.basename(path)
         box = self.new_box()
-        self.text(box, "Update berhasil diunduh", size="large", bold=True)
-        self.text(box, "File tersimpan di:", dim=True)
+        self.text(box, T("Update berhasil diunduh", "Update downloaded"), size="large", bold=True)
+        self.text(box, T("File tersimpan di:", "Saved to:"), dim=True)
         self.text(box, path, size="small", selectable=True)
-        self.text(box, "%s adalah aplikasi portable, jadi pindahkan file update secara manual:" % APP_NAME)
+        self.text(box, T("%s adalah aplikasi portable, jadi pindahkan file update secara manual:",
+                         "%s is a portable app, so move the update into place yourself:") % APP_NAME)
+        base = os.path.basename(script)
         if self.rel.is_source:
-            step2 = "2. Ekstrak %s, lalu salin linux/usagemonitor.py ke %s (ganti %s yang lama)." % (
-                name, os.path.dirname(script), os.path.basename(script))
+            step2 = T("2. Ekstrak %s, lalu salin linux/usagemonitor.py ke %s (ganti %s yang lama).",
+                      "2. Extract %s, then copy linux/usagemonitor.py to %s (replacing the old %s).") % (
+                name, os.path.dirname(script), base)
         else:
-            step2 = "2. Pindahkan %s ke %s dan ganti %s yang lama%s." % (
-                name, os.path.dirname(script), os.path.basename(script),
-                "" if name == os.path.basename(script) else " (beri nama %s)" % os.path.basename(script))
-        self.text(box, "1. Keluar dari %s (tombol di bawah).\n%s\n3. Jalankan %s lagi." % (
-            APP_NAME, step2, os.path.basename(script)), dim=True)
-        self.buttons(box, ("Buka folder", lambda *_: subprocess.Popen(["xdg-open", os.path.dirname(path)])),
-                     ("Keluar dari " + APP_NAME, lambda *_: self.app.quit()),
-                     ("Tutup", self.close))
+            step2 = T("2. Pindahkan %s ke %s dan ganti %s yang lama%s.", "2. Move %s to %s and replace the old %s%s.") % (
+                name, os.path.dirname(script), base,
+                "" if name == base else T(" (beri nama %s)", " (name it %s)") % base)
+        self.text(box, T("1. Keluar dari %s (tombol di bawah).\n%s\n3. Jalankan %s lagi.",
+                         "1. Exit %s (button below).\n%s\n3. Run %s again.") % (APP_NAME, step2, base), dim=True)
+        self.buttons(box, (T("Buka folder", "Open folder"), lambda *_: subprocess.Popen(["xdg-open", os.path.dirname(path)])),
+                     (T("Keluar dari ", "Exit ") + APP_NAME, lambda *_: self.app.quit()),
+                     (T("Tutup", "Close"), self.close))
         self.present()
 
 
@@ -819,19 +923,24 @@ class AboutWindow(DialogBase):
     """'Tentang' window: app info and a manual update check."""
 
     def __init__(self, app):
-        DialogBase.__init__(self, app, "Tentang " + APP_NAME)
+        DialogBase.__init__(self, app, T("Tentang ", "About ") + APP_NAME)
         box = self.new_box()
         self.text(box, APP_NAME, size="x-large", bold=True)
-        self.text(box, "Versi " + VERSION, dim=True)
-        self.text(box, "Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan "
-                       "ChatGPT (Codex CLI) dari system tray.")
+        self.text(box, T("Versi ", "Version ") + VERSION, dim=True)
+        self.text(box, T("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan "
+                         "ChatGPT (Codex CLI) dari system tray.",
+                         "Shows the remaining usage limits (5 hours & 7 days) of your Claude (claude CLI) and "
+                         "ChatGPT (Codex CLI) accounts in the system tray."))
         link = self.Gtk.LinkButton.new_with_label(REPO_URL, REPO_URL)
         link.set_halign(self.Gtk.Align.START)
         box.pack_start(link, False, False, 0)
-        self.text(box, "© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
+        self.text(box, T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
+                         "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic or OpenAI."),
                   size="small", dim=True)
-        self.status = self.text(box, "Update dicek otomatis setiap aplikasi dibuka.", size="small", dim=True)
-        self.check_btn = self.buttons(box, ("Periksa update", self.check), ("Tutup", self.close))[0]
+        self.status = self.text(box, T("Update dicek otomatis setiap aplikasi dibuka.",
+                                       "Updates are checked automatically every time the app starts."), size="small", dim=True)
+        self.check_btn = self.buttons(box, (T("Periksa update", "Check for updates"), self.check),
+                                      (T("Tutup", "Close"), self.close))[0]
         self.present()
 
     def set_status(self, text, color=None):
@@ -840,19 +949,74 @@ class AboutWindow(DialogBase):
 
     def check(self, *_):
         self.check_btn.set_sensitive(False)
-        self.set_status("Memeriksa update…")
+        self.set_status(T("Memeriksa update…", "Checking for updates…"))
 
         def done(rel, err):
             self.check_btn.set_sensitive(True)
             if err:
-                self.set_status("Gagal memeriksa update: %s" % err, "#e5484d")
+                self.set_status(T("Gagal memeriksa update: %s", "Update check failed: %s") % err, "#e5484d")
             elif not is_newer(rel):
-                self.set_status("✓ Anda sudah memakai versi terbaru (%s)." % VERSION, "#3fb950")
+                self.set_status(T("✓ Anda sudah memakai versi terbaru (%s).", "✓ You have the latest version (%s).") % VERSION,
+                                "#3fb950")
             else:
-                self.set_status("Versi %s tersedia." % rel.version, "#4c8bf5")
+                self.set_status(T("Versi %s tersedia.", "Version %s is available.") % rel.version, "#4c8bf5")
                 self.close()
                 self.app.show_update(rel)
         self.run_async(fetch_latest, done)
+
+
+class DonorsWindow(DialogBase):
+    """Thanks the supporters listed in donors.json and links to the donation page."""
+
+    def __init__(self, app):
+        DialogBase.__init__(self, app, T("Donatur ", "Donors of ") + APP_NAME)
+        self.donate_url = DONATE_URL
+        self.build(None, None, True)
+        self.run_async(fetch_donors, lambda lst, err: self.build(lst, err, False))
+
+    def build(self, lst, err, loading):
+        if lst is not None:
+            self.donate_url = lst.donate_url
+        box = self.new_box()
+        self.text(box, "\u2665 " + T("Dukung ", "Support ") + APP_NAME, size="large", bold=True, color="#f06292")
+        self.text(box, T("%s gratis dan open source. Donasi Anda membantu aplikasi ini terus dirawat dan dikembangkan.",
+                         "%s is free and open source. Your donation helps keep it maintained and improved.") % APP_NAME,
+                  dim=True)
+        self.text(box, T("Terima kasih kepada para donatur:", "Thank you to our donors:"), bold=True)
+        if loading:
+            text = T("Memuat daftar donatur…", "Loading the donor list…")
+        elif err:
+            text = T("Daftar donatur gagal dimuat: %s", "Couldn't load the donor list: %s") % err
+        elif not lst.donors:
+            text = T("Belum ada donatur. Jadilah yang pertama!", "No donors yet. Be the first!")
+        else:
+            lines = []
+            for d in lst.donors:
+                line = "\u2665 " + d["name"]
+                if d.get("date"):
+                    line += "  ·  %s" % d["date"]
+                if d.get("note"):
+                    line += "\n    " + str(d["note"]).replace("\n", " ")
+                lines.append(line)
+            text = "\n".join(lines)
+        view = self.Gtk.TextView()
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        view.set_wrap_mode(self.Gtk.WrapMode.WORD)
+        view.set_left_margin(8)
+        view.set_right_margin(8)
+        view.set_top_margin(6)
+        view.get_buffer().set_text(text)
+        sw = self.Gtk.ScrolledWindow()
+        sw.set_size_request(420, 170)
+        sw.set_shadow_type(self.Gtk.ShadowType.IN)
+        sw.add(view)
+        box.pack_start(sw, False, False, 0)
+        self.text(box, T("Ingin nama Anda tercantum? Tulis nama di catatan donasi.",
+                         "Want your name listed? Add it to the donation note."), size="small", dim=True)
+        self.buttons(box, (T("Donasi", "Donate"), lambda *_: subprocess.Popen(["xdg-open", self.donate_url])),
+                     (T("Tutup", "Close"), self.close))
+        self.present()
 
 
 class TrayApp:
@@ -878,6 +1042,7 @@ class TrayApp:
         self.icon_path = None
         self.about_win = None
         self.update_win = None
+        self.donors_win = None
 
         self.ind = AppIndicator.Indicator.new(APP_ID, "", AppIndicator.IndicatorCategory.APPLICATION_STATUS)
         self.ind.set_status(AppIndicator.IndicatorStatus.ACTIVE)
@@ -918,6 +1083,33 @@ class TrayApp:
             self.about_win.present()
             return
         self.about_win = AboutWindow(self)
+
+    def show_donors(self, *_):
+        if self.donors_win and not self.donors_win.closed:
+            self.donors_win.present()
+            return
+        self.donors_win = DonorsWindow(self)
+
+    def set_language(self, item, code):
+        if not item.get_active() or lang_choice() == code:
+            return
+        was_id = is_id()
+        set_lang_choice(code)
+        if is_id() != was_id:
+            # reopen windows in the new language; texts from the last fetch are redone by a refresh
+            for attr in ("about_win", "donors_win"):
+                w = getattr(self, attr)
+                if w and not w.closed:
+                    w.close()
+                    setattr(self, attr, None)
+            u = self.update_win
+            if u and not u.closed and not u.busy:
+                u.close()
+                self.update_win = UpdateWindow(self, u.rel)
+            for st in self.data.values():
+                st.note = None
+            self.refresh()
+        self.GLib.idle_add(self.rebuild_menu)
 
     def shown(self):
         """Installed providers that are ticked. Never empty."""
@@ -968,10 +1160,10 @@ class TrayApp:
             retry = datetime.now() + timedelta(minutes=mins)
             self.next_allowed[prov.id] = retry
             if prev is not None and prev.error is None:
-                prev.note = "Dibatasi server (429) · data %s · coba lagi %s" % (
+                prev.note = T("Dibatasi server (429) · data %s · coba lagi %s", "Rate limited (429) · data %s · retry %s") % (
                     prev.fetched_at.strftime("%H:%M"), retry.strftime("%H:%M"))
                 return  # keep showing the last good data
-            r.error = "Dibatasi server (429). Dicoba lagi %s." % retry.strftime("%H:%M")
+            r.error = T("Dibatasi server (429). Dicoba lagi %s.", "Rate limited by the server (429). Retrying at %s.") % retry.strftime("%H:%M")
         else:
             self.backoff_min.pop(prov.id, None)
             self.next_allowed.pop(prov.id, None)
@@ -1012,19 +1204,22 @@ class TrayApp:
         for p in provs:
             st = self.data.get(p.id)
             if st and st.error is None:
-                for w in st.rows():
-                    self.check_alert(p, w.label, w)
+                for i, w in enumerate(st.rows()):
+                    self.check_alert(p, i, w)
         if self.pending:
             self.refresh()
         return False
 
-    def check_alert(self, prov, label, w):
-        key = prov.id + label
+    def check_alert(self, prov, index, w):
+        # keyed by row position, not label, so switching the language doesn't repeat an alert
+        key = "%s#%d" % (prov.id, index)
+        label = w.label
         high = w.percent is not None and w.percent >= 90
         if high and not self.alerted.get(key) and shutil.which("notify-send"):
             subprocess.Popen(["notify-send", "-a", APP_NAME, "-u", "critical",
-                              "Usage %s tinggi" % prov.title,
-                              "%s %s: %s terpakai. %s" % (prov.title, label, pct_text(w.percent), reset_text(w.reset_at))])
+                              T("Usage %s tinggi", "%s usage is high") % prov.title,
+                              T("%s %s: %s terpakai. %s", "%s %s: %s used. %s")
+                              % (prov.title, label, pct_text(w.percent), reset_text(w.reset_at))])
         self.alerted[key] = high
 
     def update_icon(self):
@@ -1057,7 +1252,7 @@ class TrayApp:
                 head += "  —  " + st.account
             label(head)
             if st is None:
-                label("    " + ("Memuat…" if self.busy else "Belum ada data"))
+                label("    " + (T("Memuat…", "Loading…") if self.busy else T("Belum ada data", "No data yet")))
             elif st.error:
                 label("    ⚠ " + st.error)
             else:
@@ -1072,18 +1267,18 @@ class TrayApp:
             menu.append(Gtk.SeparatorMenuItem())
 
         if self.busy:
-            foot = "Memuat…"
+            foot = T("Memuat…", "Loading…")
         elif self.updated:
-            foot = "Diperbarui %s  ·  tiap 5 menit" % self.updated.strftime("%H:%M:%S")
+            foot = T("Diperbarui %s  ·  tiap 5 menit", "Updated %s  ·  every 5 minutes") % self.updated.strftime("%H:%M:%S")
         else:
-            foot = "Belum ada data"
+            foot = T("Belum ada data", "No data yet")
         label(foot).set_sensitive(False)
 
-        label("↻ Refresh sekarang").connect("activate", self.refresh)
+        label(T("↻ Refresh sekarang", "↻ Refresh now")).connect("activate", self.refresh)
         menu.append(Gtk.SeparatorMenuItem())
 
         # Provider selection: only CLIs installed on this computer are listed
-        label("Tampilkan akun:").set_sensitive(False)
+        label(T("Tampilkan akun:", "Show accounts:")).set_sensitive(False)
         for prov in self.installed:
             item = Gtk.CheckMenuItem(label=prov.menu_title)
             item.set_active(prov in shown)
@@ -1091,13 +1286,31 @@ class TrayApp:
             menu.append(item)
         menu.append(Gtk.SeparatorMenuItem())
 
-        auto = Gtk.CheckMenuItem(label="Jalankan saat login")
+        auto = Gtk.CheckMenuItem(label=T("Jalankan saat login", "Run at login"))
         auto.set_active(autostart_enabled())
         auto.connect("toggled", lambda i: set_autostart(i.get_active()))
         menu.append(auto)
-        label("ⓘ Tentang & update…").connect("activate", self.show_about)
+
+        # Language: follow the system, or a fixed language
+        lang_item = Gtk.MenuItem(label="⚙ " + T("Bahasa", "Language"))
+        sub = Gtk.Menu()
+        group = None
+        system_name = "Bahasa Indonesia" if system_is_indonesian() else "English"
+        for code, name in (("", T("Ikuti sistem", "Follow system") + " (%s)" % system_name),
+                           ("id", "Bahasa Indonesia"), ("en", "English")):
+            r = Gtk.RadioMenuItem.new_with_label_from_widget(group, name)
+            group = group or r
+            r.set_active(lang_choice() == code)
+            r.connect("toggled", self.set_language, code)
+            sub.append(r)
+        lang_item.set_submenu(sub)
+        menu.append(lang_item)
         menu.append(Gtk.SeparatorMenuItem())
-        label("Keluar").connect("activate", self.quit)
+
+        label(T("♥ Donatur & donasi…", "♥ Donors & donate…")).connect("activate", self.show_donors)
+        label(T("ⓘ Tentang & update…", "ⓘ About & update…")).connect("activate", self.show_about)
+        menu.append(Gtk.SeparatorMenuItem())
+        label(T("Keluar", "Exit")).connect("activate", self.quit)
 
         menu.show_all()
         self.ind.set_menu(menu)
@@ -1105,7 +1318,7 @@ class TrayApp:
         return False
 
     def quit(self, *_):
-        for w in (self.about_win, self.update_win):
+        for w in (self.about_win, self.update_win, self.donors_win):
             if w:
                 w.close()
         if self.icon_path and os.path.exists(self.icon_path):
@@ -1148,6 +1361,12 @@ def main():
         return
     if "--check-update" in sys.argv:
         run_check_update()
+        return
+    if "--donors" in sys.argv:  # debug: print the donor list
+        d = fetch_donors()
+        print("donate_url=" + d.donate_url)
+        for x in d.donors:
+            print("  %s | %s | %s" % (x["name"], x.get("date") or "", x.get("note") or ""))
         return
     if "--icon" in sys.argv:  # debug: write icon PNG with live data (optional ids after path)
         i = sys.argv.index("--icon")

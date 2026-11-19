@@ -2,8 +2,8 @@
 
 Aplikasi menu bar macOS untuk memantau usage **Claude** (`claude` CLI) dan **ChatGPT** (Codex CLI), jendela 5 jam & 7 hari.
 
-- **Klik icon** di menu bar → popover berisi usage 5 jam & 7 hari, waktu reset, plan, email, tombol **↻** (refresh) dan **ⓘ** (tentang & update), opsi *Jalankan saat login*, dan Keluar.
-- **Klik kanan** (atau Control+klik) → menu: Refresh, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat login, Tentang & update…, Keluar.
+- **Klik icon** di menu bar → popover berisi usage 5 jam & 7 hari, waktu reset, plan, email, tombol **♥** (donatur), **↻** (refresh), **ⓘ** (tentang & update), dan **⚙** (pengaturan: menu yang sama dengan klik kanan), opsi *Jalankan saat login*, dan Keluar.
+- **Klik kanan** (atau Control+klik) → menu: Refresh, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat login, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
   - Pilihan akun hanya berisi CLI yang terpasang di Mac ini. Minimal satu akun harus tercentang. Pilihan disimpan di UserDefaults.
 - **Hover** → ringkasan usage.
 - Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan: Claude di atas, ChatGPT di bawah.

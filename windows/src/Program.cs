@@ -16,9 +16,9 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyProduct("Usage Monitor")]
 [assembly: System.Reflection.AssemblyCompany("Naraya IT Solution")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Naraya IT Solution")]
-[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("2.0")]
+[assembly: System.Reflection.AssemblyVersion("2.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("2.1")]
 
 namespace UsageMonitor
 {
@@ -81,17 +81,20 @@ namespace UsageMonitor
                 File.WriteAllText(args[1], outText);
                 return;
             }
-            if (args.Length == 2 && (args[0] == "--preview-about" || args[0] == "--preview-update"))
+            if (args.Length == 2 && (args[0] == "--preview-about" || args[0] == "--preview-update" || args[0] == "--preview-donors"))
             {
-                // Render the About / Update window to a PNG (the update window uses a sample release)
+                // Render the About / Update / Donors window to a PNG (the update window uses a sample release)
                 try { SetProcessDPIAware(); } catch { }
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 Form f = args[0] == "--preview-about" ? (Form)new AboutForm()
+                    : args[0] == "--preview-donors" ? (Form)new DonorsForm()
                     : new UpdateForm(new ReleaseInfo { Version = "2.1", Tag = "v2.1", AssetName = "UsageMonitor.exe", AssetUrl = "x",
                                                        Notes = "Contoh catatan rilis:\n- Perbaikan tampilan popup\n- Waktu reset lebih akurat" });
                 f.StartPosition = FormStartPosition.Manual;
                 f.Location = new Point(-5000, -5000);
                 f.Show();
-                Application.DoEvents();
+                // the donors window loads donors.json in the background
+                for (int i = 0; i < (args[0] == "--preview-donors" ? 60 : 1); i++) { Application.DoEvents(); Thread.Sleep(100); }
                 using (var bmp = new Bitmap(f.Width, f.Height))
                 {
                     f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));

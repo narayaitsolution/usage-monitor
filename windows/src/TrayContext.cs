@@ -19,9 +19,9 @@ namespace UsageMonitor
         readonly NotifyIcon tray;
         readonly PopupForm popup;
         readonly ContextMenuStrip menu;
-        readonly ToolStripLabel providerHeader;
+        ToolStripLabel providerHeader;
         readonly System.Windows.Forms.Timer timer;
-        readonly ToolStripMenuItem startupItem;
+        ToolStripMenuItem startupItem;
         readonly List<ToolStripMenuItem> providerItems = new List<ToolStripMenuItem>();
         readonly HashSet<string> hidden;   // providers the user unticked (new installs show by default)
         readonly Dictionary<string, ProviderStatus> data = new Dictionary<string, ProviderStatus>();
@@ -32,6 +32,7 @@ namespace UsageMonitor
         bool busy, pendingRefresh, keepMenuOpen;
         AboutForm about;
         UpdateForm updateForm;
+        DonorsForm donors;
 
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
 
@@ -43,22 +44,12 @@ namespace UsageMonitor
             popup = new PopupForm();
             popup.RefreshRequested += delegate { RefreshAsync(); };
             popup.InfoRequested += delegate { ShowAbout(); };
+            popup.DonorsRequested += delegate { ShowDonors(); };
+            // The gear button opens the same menu as a right-click on the tray icon
+            popup.SettingsRequested += delegate(Point p) { menu.Show(p, ToolStripDropDownDirection.BelowLeft); };
 
             menu = new ContextMenuStrip();
-            menu.Items.Add("Tampilkan usage", null, delegate { TogglePopup(); });
-            menu.Items.Add("Refresh sekarang", null, delegate { RefreshAsync(); });
-            menu.Items.Add(new ToolStripSeparator());
-            providerHeader = new ToolStripLabel("Tampilkan akun:") { ForeColor = SystemColors.GrayText };
-            menu.Items.Add(providerHeader);
-            // provider checkboxes are inserted after the header in BuildProviderItems()
-            menu.Items.Add(new ToolStripSeparator());
-            startupItem = new ToolStripMenuItem("Jalankan saat Windows start", null, delegate { ToggleStartup(); });
-            startupItem.Checked = IsStartupEnabled();
-            menu.Items.Add(startupItem);
-            menu.Items.Add("Tentang && update…", null, delegate { ShowAbout(); });
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Keluar", null, delegate { ExitApp(); });
-            BuildProviderItems();
+            BuildMenu();
 
             // Re-detect installed CLIs every time the menu opens
             menu.Opening += delegate
@@ -77,7 +68,7 @@ namespace UsageMonitor
 
             tray = new NotifyIcon();
             tray.ContextMenuStrip = menu;
-            tray.Text = "Usage Monitor - memuat...";
+            tray.Text = L.T("Usage Monitor - memuat...", "Usage Monitor - loading...");
             UpdateView();
             tray.Visible = true;
             tray.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) TogglePopup(); };
@@ -91,6 +82,79 @@ namespace UsageMonitor
             var once = new System.Windows.Forms.Timer { Interval = 4000 };
             once.Tick += delegate { once.Stop(); once.Dispose(); CheckUpdateInBackground(); };
             once.Start();
+        }
+
+        // ------------------------------------------------------------ menu & language
+        /// Right-click menu (also opened by the gear button in the popup). Rebuilt when the language changes.
+        void BuildMenu()
+        {
+            menu.Items.Clear();
+            providerItems.Clear();
+            menu.Items.Add(L.T("Tampilkan usage", "Show usage"), null, delegate { TogglePopup(); });
+            menu.Items.Add(L.T("Refresh sekarang", "Refresh now"), null, delegate { RefreshAsync(); });
+            menu.Items.Add(new ToolStripSeparator());
+            providerHeader = new ToolStripLabel(L.T("Tampilkan akun:", "Show accounts:")) { ForeColor = SystemColors.GrayText };
+            menu.Items.Add(providerHeader);
+            // provider checkboxes are inserted after the header in BuildProviderItems()
+            menu.Items.Add(new ToolStripSeparator());
+            startupItem = new ToolStripMenuItem(L.T("Jalankan saat Windows start", "Run at Windows startup"), null, delegate { ToggleStartup(); });
+            startupItem.Checked = IsStartupEnabled();
+            menu.Items.Add(startupItem);
+            menu.Items.Add(BuildLanguageMenu());
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(L.T("Donatur && donasi…", "Donors && donate…"), null, delegate { ShowDonors(); });
+            menu.Items.Add(L.T("Tentang && update…", "About && update…"), null, delegate { ShowAbout(); });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(L.T("Keluar", "Exit"), null, delegate { ExitApp(); });
+            BuildProviderItems();
+        }
+
+        ToolStripMenuItem BuildLanguageMenu()
+        {
+            var root = new ToolStripMenuItem(L.T("Bahasa", "Language"));
+            string sys = L.SystemIsIndonesian ? "Bahasa Indonesia" : "English";
+            string[][] choices =
+            {
+                new[] { "", L.T("Ikuti sistem", "Follow system") + " (" + sys + ")" },
+                new[] { "id", "Bahasa Indonesia" },
+                new[] { "en", "English" },
+            };
+            foreach (string[] c in choices)
+            {
+                string code = c[0];
+                var item = new ToolStripMenuItem(c[1]) { Checked = L.Choice == code };
+                item.Click += delegate { SetLanguage(code); };
+                root.DropDownItems.Add(item);
+            }
+            return root;
+        }
+
+        void SetLanguage(string code)
+        {
+            if (L.Choice == code) return;
+            bool wasId = L.Id;
+            L.SetChoice(code);
+            BuildMenu();
+            if (L.Id == wasId) return;
+            // Reopen windows in the new language; texts from the last fetch are redone by a refresh
+            if (about != null && !about.IsDisposed) { about.Close(); about = null; }
+            if (donors != null && !donors.IsDisposed) { donors.Close(); donors = null; }
+            if (updateForm != null && !updateForm.IsDisposed)
+            {
+                ReleaseInfo r = updateForm.Release;
+                if (!updateForm.Busy) { updateForm.Close(); ShowUpdate(r); }
+            }
+            foreach (var st in data.Values) st.Note = null;
+            UpdateView();
+            RefreshAsync();
+        }
+
+        void ShowDonors()
+        {
+            popup.Hide();
+            if (donors == null || donors.IsDisposed) donors = new DonorsForm();
+            donors.Show();
+            donors.Activate();
         }
 
         // ------------------------------------------------------------ update & about
@@ -141,7 +205,7 @@ namespace UsageMonitor
 
         void BuildProviderItems()
         {
-            foreach (var it in providerItems) { menu.Items.Remove(it); it.Dispose(); }
+            foreach (var it in providerItems) { if (menu.Items.Contains(it)) menu.Items.Remove(it); it.Dispose(); }
             providerItems.Clear();
             var shown = Shown();
             int index = menu.Items.IndexOf(providerHeader) + 1;
@@ -217,11 +281,11 @@ namespace UsageMonitor
                 if (prev != null && prev.Error == null)
                 {
                     // keep showing the last good data
-                    prev.Note = "Dibatasi server (429) · data " + prev.FetchedAt.ToString("HH:mm")
-                                + " · coba lagi " + retry.ToString("HH:mm");
+                    prev.Note = L.T("Dibatasi server (429) · data ", "Rate limited (429) · data ") + prev.FetchedAt.ToString("HH:mm")
+                                + L.T(" · coba lagi ", " · retry ") + retry.ToString("HH:mm");
                     return;
                 }
-                r.Error = "Dibatasi server (429). Dicoba lagi " + retry.ToString("HH:mm") + ".";
+                r.Error = L.T("Dibatasi server (429). Dicoba lagi ", "Rate limited by the server (429). Retrying at ") + retry.ToString("HH:mm") + ".";
             }
             else
             {
@@ -290,18 +354,21 @@ namespace UsageMonitor
         {
             var p = Get(d);
             if (p == null || p.Error != null) return;
-            foreach (var w in p.Rows()) CheckAlert(d, w.Label, w);
+            var rows = p.Rows();
+            for (int i = 0; i < rows.Count; i++) CheckAlert(d, i, rows[i]);
         }
 
-        void CheckAlert(ProviderDef d, string label, UsageWindow w)
+        // Keyed by row position, not label, so switching the language doesn't repeat an alert
+        void CheckAlert(ProviderDef d, int index, UsageWindow w)
         {
-            string key = d.Id + label;
+            string label = w.Label;
+            string key = d.Id + "#" + index;
             bool high = w.Percent.HasValue && w.Percent.Value >= 90;
             bool was;
             alerted.TryGetValue(key, out was);
             if (high && !was)
-                tray.ShowBalloonTip(5000, "Usage " + d.Title + " tinggi",
-                    d.Title + " " + label + ": " + Math.Round(w.Percent.Value) + "% terpakai. " + PopupForm.ResetText(w.ResetAt),
+                tray.ShowBalloonTip(5000, L.T("Usage " + d.Title + " tinggi", d.Title + " usage is high"),
+                    d.Title + " " + label + ": " + Math.Round(w.Percent.Value) + L.T("% terpakai. ", "% used. ") + PopupForm.ResetText(w.ResetAt),
                     ToolTipIcon.Warning);
             alerted[key] = high;
         }
@@ -309,7 +376,7 @@ namespace UsageMonitor
         string TipLine(ProviderDef d)
         {
             var p = Get(d);
-            if (p == null) return d.Short + ": memuat...";
+            if (p == null) return d.Short + L.T(": memuat...", ": loading...");
             if (p.Error != null) return d.Short + ": error";
             return d.Short + " 5h " + Pct(p.Five.Percent) + " | 7d " + Pct(p.Week.Percent);
         }
@@ -387,6 +454,7 @@ namespace UsageMonitor
             timer.Stop();
             if (about != null && !about.IsDisposed) about.Close();
             if (updateForm != null && !updateForm.IsDisposed) updateForm.Close();
+            if (donors != null && !donors.IsDisposed) donors.Close();
             tray.Visible = false;
             tray.Dispose();
             if (currentHIcon != IntPtr.Zero) DestroyIcon(currentHIcon);

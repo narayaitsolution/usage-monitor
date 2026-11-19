@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -8,7 +9,7 @@ using System.Windows.Forms;
 
 namespace UsageMonitor
 {
-    /// Small dark, always-on-top window used for "Tentang" and "Update".
+    /// Small dark, always-on-top window used for "Tentang", "Update" and "Donatur".
     class DarkForm : Form
     {
         protected static readonly Color Bg = Color.FromArgb(32, 32, 32);
@@ -83,6 +84,17 @@ namespace UsageMonitor
             Controls.Add(l);
             y += l.Height + Sc(gapAfter);
             return l;
+        }
+
+        protected LinkLabel AddLink(string text, string url, int advance)
+        {
+            var link = new LinkLabel { Text = text, Font = BodyFont, AutoSize = true, Location = new Point(Sc(Pad), y),
+                                       LinkColor = Color.FromArgb(120, 170, 250), ActiveLinkColor = Color.FromArgb(160, 195, 255),
+                                       LinkBehavior = LinkBehavior.HoverUnderline };
+            link.LinkClicked += delegate { Updater.OpenUrl(url); };
+            Controls.Add(link);
+            y += Sc(advance);
+            return link;
         }
 
         protected TextBox AddBox(string text, int height, bool multiline, int gapAfter)
@@ -199,6 +211,8 @@ namespace UsageMonitor
         public event EventHandler ExitRequested;
         public readonly ReleaseInfo Release;
         string error;
+        /// True while the download runs (the window is not rebuilt for a language change then).
+        public bool Busy { get; private set; }
 
         public UpdateForm(ReleaseInfo r) : base("Update " + AppInfo.Name)
         {
@@ -209,15 +223,18 @@ namespace UsageMonitor
         void ShowOffer()
         {
             Begin();
-            AddText("Update tersedia", TitleFont, Fg, 4);
-            AddText(AppInfo.Name + " " + Release.Version + " sudah tersedia. Versi Anda: " + AppInfo.Version + ".", BodyFont, Muted, 14);
-            AddText("Yang baru di versi " + Release.Version + ":", BoldFont, Fg, 6);
-            string notes = Release.Notes.Length > 0 ? Release.Notes : "(Tidak ada catatan rilis.)";
+            AddText(L.T("Update tersedia", "Update available"), TitleFont, Fg, 4);
+            AddText(L.T(AppInfo.Name + " " + Release.Version + " sudah tersedia. Versi Anda: " + AppInfo.Version + ".",
+                        AppInfo.Name + " " + Release.Version + " is available. You have version " + AppInfo.Version + "."), BodyFont, Muted, 14);
+            AddText(L.T("Yang baru di versi " + Release.Version + ":", "What's new in version " + Release.Version + ":"), BoldFont, Fg, 6);
+            string notes = Release.Notes.Length > 0 ? Release.Notes : L.T("(Tidak ada catatan rilis.)", "(No release notes.)");
             AddBox(notes.Replace("\r\n", "\n").Replace("\n", "\r\n"), 150, true, 12);
             if (Release.AssetUrl == null)
-                AddText("Rilis ini tidak berisi file untuk Windows. Tombol Update membuka halaman rilis di browser.", SmallFont, Muted, 10);
+                AddText(L.T("Rilis ini tidak berisi file untuk Windows. Tombol Update membuka halaman rilis di browser.",
+                            "This release has no file for Windows. The Update button opens the release page in your browser."), SmallFont, Muted, 10);
             if (error != null) AddText(error, SmallFont, ErrColor, 10);
-            AddText("Skip: tawaran untuk versi " + Release.Version + " tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi saat aplikasi dibuka berikutnya.",
+            AddText(L.T("Skip: tawaran untuk versi " + Release.Version + " tidak muncul lagi. Tutup jendela ini untuk diingatkan lagi saat aplikasi dibuka berikutnya.",
+                        "Skip: version " + Release.Version + " won't be offered again. Close this window to be reminded the next time the app starts."),
                     SmallFont, Muted, 14);
             Button[] b = AddButtons("Update", "Skip");
             b[0].Click += delegate { StartDownload(); };
@@ -230,9 +247,10 @@ namespace UsageMonitor
         {
             if (Release.AssetUrl == null) { Updater.OpenUrl(Release.PageUrl); Close(); return; }
             error = null;
+            Busy = true;
             Begin();
-            AddText("Mengunduh update…", TitleFont, Fg, 4);
-            AddText(Release.AssetName + " → folder Downloads", BodyFont, Muted, 14);
+            AddText(L.T("Mengunduh update…", "Downloading update…"), TitleFont, Fg, 4);
+            AddText(Release.AssetName + L.T(" → folder Downloads", " → Downloads folder"), BodyFont, Muted, 14);
             var bar = new ProgressBar { Location = new Point(Sc(Pad), y), Size = new Size(Sc(ContentW), Sc(8)),
                                         Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30 };
             Controls.Add(bar);
@@ -248,6 +266,7 @@ namespace UsageMonitor
                 pctLabel.Text = pct + "%";
             })), (path, ex) =>
             {
+                Busy = false;
                 if (ex != null) { error = ex.Message; ShowOffer(); return; }
                 ShowDone(path);
             });
@@ -256,20 +275,27 @@ namespace UsageMonitor
         void ShowDone(string path)
         {
             string exe = Application.ExecutablePath;
-            string exeName = Path.GetFileName(exe), newName = Path.GetFileName(path);
+            string exeName = Path.GetFileName(exe), newName = Path.GetFileName(path), dir = Path.GetDirectoryName(exe);
             bool isExe = newName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+            bool sameName = string.Equals(newName, exeName, StringComparison.OrdinalIgnoreCase);
             Begin();
-            AddText("Update berhasil diunduh", TitleFont, Fg, 4);
-            AddText("File tersimpan di:", BodyFont, Muted, 6);
+            AddText(L.T("Update berhasil diunduh", "Update downloaded"), TitleFont, Fg, 4);
+            AddText(L.T("File tersimpan di:", "Saved to:"), BodyFont, Muted, 6);
             AddBox(path, 0, false, 14);
-            AddText(AppInfo.Name + " adalah aplikasi portable, jadi pindahkan file update secara manual:", BodyFont, Fg, 6);
+            AddText(L.T(AppInfo.Name + " adalah aplikasi portable, jadi pindahkan file update secara manual:",
+                        AppInfo.Name + " is a portable app, so move the update into place yourself:"), BodyFont, Fg, 6);
             string step2 = isExe
-                ? "2. Pindahkan " + newName + " ke folder " + Path.GetDirectoryName(exe) + " dan ganti " + exeName + " yang lama"
-                  + (string.Equals(newName, exeName, StringComparison.OrdinalIgnoreCase) ? "." : " (beri nama " + exeName + ").")
-                : "2. Ekstrak " + newName + ", lalu ganti " + exeName + " di folder " + Path.GetDirectoryName(exe) + ".";
-            AddText("1. Keluar dari " + AppInfo.Name + " (tombol di bawah, atau klik kanan icon tray → Keluar).\r\n"
-                    + step2 + "\r\n3. Jalankan " + exeName + " lagi.", BodyFont, Muted, 16);
-            Button[] b = AddButtons("Buka folder", "Keluar dari " + AppInfo.Name, "Tutup");
+                ? L.T("2. Pindahkan " + newName + " ke folder " + dir + " dan ganti " + exeName + " yang lama"
+                      + (sameName ? "." : " (beri nama " + exeName + ")."),
+                      "2. Move " + newName + " to the folder " + dir + " and replace the old " + exeName
+                      + (sameName ? "." : " (name it " + exeName + ")."))
+                : L.T("2. Ekstrak " + newName + ", lalu ganti " + exeName + " di folder " + dir + ".",
+                      "2. Extract " + newName + ", then replace " + exeName + " in the folder " + dir + ".");
+            AddText(L.T("1. Keluar dari " + AppInfo.Name + " (tombol di bawah, atau klik kanan icon tray → Keluar).",
+                        "1. Exit " + AppInfo.Name + " (button below, or right-click the tray icon → Exit).")
+                    + "\r\n" + step2 + "\r\n"
+                    + L.T("3. Jalankan " + exeName + " lagi.", "3. Run " + exeName + " again."), BodyFont, Muted, 16);
+            Button[] b = AddButtons(L.T("Buka folder", "Open folder"), L.T("Keluar dari ", "Exit ") + AppInfo.Name, L.T("Tutup", "Close"));
             b[0].Click += delegate { Updater.ShowInFolder(path); };
             b[1].Click += delegate { Close(); if (ExitRequested != null) ExitRequested(this, EventArgs.Empty); };
             b[2].Click += delegate { Close(); };
@@ -285,7 +311,7 @@ namespace UsageMonitor
         Label status;
         Button check;
 
-        public AboutForm() : base("Tentang " + AppInfo.Name)
+        public AboutForm() : base(L.T("Tentang ", "About ") + AppInfo.Name)
         {
             Begin();
             var pic = new PictureBox { Image = AppIcon.Bitmap(Sc(48)), Size = new Size(Sc(48), Sc(48)),
@@ -293,22 +319,20 @@ namespace UsageMonitor
             Controls.Add(pic);
             var name = new Label { Text = AppInfo.Name, Font = TitleFont, ForeColor = Fg, AutoSize = true,
                                    Location = new Point(Sc(Pad + 60), y + Sc(3)) };
-            var ver = new Label { Text = "Versi " + AppInfo.Version, Font = BodyFont, ForeColor = Muted, AutoSize = true,
+            var ver = new Label { Text = L.T("Versi ", "Version ") + AppInfo.Version, Font = BodyFont, ForeColor = Muted, AutoSize = true,
                                   Location = new Point(Sc(Pad + 60), y + Sc(27)) };
             Controls.Add(name);
             Controls.Add(ver);
             y += Sc(48 + 14);
-            AddText("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari system tray.",
+            AddText(L.T("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari system tray.",
+                        "Shows the remaining usage limits (5 hours & 7 days) of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts in the system tray."),
                     BodyFont, Fg, 10);
-            var link = new LinkLabel { Text = AppInfo.RepoUrl, Font = BodyFont, AutoSize = true, Location = new Point(Sc(Pad), y),
-                                       LinkColor = Color.FromArgb(120, 170, 250), ActiveLinkColor = Color.FromArgb(160, 195, 255),
-                                       LinkBehavior = LinkBehavior.HoverUnderline };
-            link.LinkClicked += delegate { Updater.OpenUrl(AppInfo.RepoUrl); };
-            Controls.Add(link);
-            y += Sc(24);
-            AddText("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.", SmallFont, Muted, 14);
-            status = AddText("Update dicek otomatis setiap aplikasi dibuka.", SmallFont, Muted, 12, 34);
-            Button[] b = AddButtons("Periksa update", "Tutup");
+            AddLink(AppInfo.RepoUrl, AppInfo.RepoUrl, 24);
+            AddText(L.T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
+                        "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic or OpenAI."), SmallFont, Muted, 14);
+            status = AddText(L.T("Update dicek otomatis setiap aplikasi dibuka.", "Updates are checked automatically every time the app starts."),
+                             SmallFont, Muted, 12, 34);
+            Button[] b = AddButtons(L.T("Periksa update", "Check for updates"), L.T("Tutup", "Close"));
             check = b[0];
             check.Click += delegate { CheckNow(); };
             b[1].Click += delegate { Close(); };
@@ -320,19 +344,119 @@ namespace UsageMonitor
         void CheckNow()
         {
             check.Enabled = false;
-            SetStatus("Memeriksa update…", Muted);
+            SetStatus(L.T("Memeriksa update…", "Checking for updates…"), Muted);
             RunAsync(() => Updater.FetchLatest(), (r, ex) =>
             {
                 check.Enabled = true;
-                if (ex != null) { SetStatus("Gagal memeriksa update: " + ex.Message, ErrColor); return; }
+                if (ex != null) { SetStatus(L.T("Gagal memeriksa update: ", "Update check failed: ") + ex.Message, ErrColor); return; }
                 if (!Updater.IsNewer(r))
                 {
-                    SetStatus("✓ Anda sudah memakai versi terbaru (" + AppInfo.Version + ").", Ok);
+                    SetStatus(L.T("✓ Anda sudah memakai versi terbaru (", "✓ You have the latest version (") + AppInfo.Version + ").", Ok);
                     return;
                 }
-                SetStatus("Versi " + r.Version + " tersedia.", Accent);
+                SetStatus(L.T("Versi " + r.Version + " tersedia.", "Version " + r.Version + " is available."), Accent);
                 if (UpdateFound != null) UpdateFound(r);
             });
+        }
+    }
+
+    /// One supporter from donors.json.
+    class Donor
+    {
+        public string Name;
+        public string Note;   // optional message or amount
+        public string Date;   // optional, as written in the file
+    }
+
+    class DonorList
+    {
+        public string DonateUrl = AppInfo.DonateUrl;
+        public List<Donor> Donors = new List<Donor>();
+    }
+
+    static class DonorSource
+    {
+        /// Reads donors.json from the repository:
+        /// { "donate_url": "https://...", "donors": [ { "name": "Budi", "note": "Semangat!", "date": "2026-11-19" } ] }
+        public static DonorList Fetch()
+        {
+            string body;
+            try { body = Http.Get(AppInfo.DonorsUrl + "?t=" + DateTime.UtcNow.Ticks, new Dictionary<string, string>()); }
+            catch (HttpException ex)
+            {
+                if (ex.Code == 404) return new DonorList(); // file not published yet
+                throw new Exception(L.T("GitHub membalas HTTP ", "GitHub answered HTTP ") + ex.Code + ".");
+            }
+            object root = Json.Parse(body);
+            var list = new DonorList();
+            string url = Json.Str(root, "donate_url");
+            if (!string.IsNullOrEmpty(url) && (url.StartsWith("https://") || url.StartsWith("http://"))) list.DonateUrl = url;
+            var donors = Json.Get(root, "donors") as object[];
+            if (donors != null)
+                foreach (object d in donors)
+                {
+                    string name = d is string ? (string)d : Json.Str(d, "name");
+                    if (string.IsNullOrEmpty(name) || name.Trim().Length == 0) continue;
+                    list.Donors.Add(new Donor { Name = name.Trim(), Note = Json.Str(d, "note") ?? Json.Str(d, "message"),
+                                                Date = Json.Str(d, "date") });
+                }
+            return list;
+        }
+    }
+
+    /// Heart button: thanks the supporters listed in donors.json and links to the donation page.
+    class DonorsForm : DarkForm
+    {
+        DonorList list;
+        string error;
+        bool loading = true;
+
+        public DonorsForm() : base(L.T("Donatur ", "Donors of ") + AppInfo.Name)
+        {
+            Build();
+            RunAsync(() => DonorSource.Fetch(), (r, ex) =>
+            {
+                loading = false;
+                list = r;
+                if (ex != null) error = L.T("Daftar donatur gagal dimuat: ", "Couldn't load the donor list: ") + ex.Message;
+                Build();
+            });
+        }
+
+        string DonateUrl { get { return list != null ? list.DonateUrl : AppInfo.DonateUrl; } }
+
+        void Build()
+        {
+            Begin();
+            AddText("♥ " + L.T("Dukung " + AppInfo.Name, "Support " + AppInfo.Name), TitleFont, Fg, 4);
+            AddText(L.T(AppInfo.Name + " gratis dan open source. Donasi Anda membantu aplikasi ini terus dirawat dan dikembangkan.",
+                        AppInfo.Name + " is free and open source. Your donation helps keep it maintained and improved."),
+                    BodyFont, Muted, 14);
+            AddText(L.T("Terima kasih kepada para donatur:", "Thank you to our donors:"), BoldFont, Fg, 6);
+            string text;
+            if (loading) text = L.T("Memuat daftar donatur…", "Loading the donor list…");
+            else if (error != null) text = error;
+            else if (list.Donors.Count == 0) text = L.T("Belum ada donatur. Jadilah yang pertama!", "No donors yet. Be the first!");
+            else
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var d in list.Donors)
+                {
+                    sb.Append("♥ ").Append(d.Name);
+                    if (!string.IsNullOrEmpty(d.Date)) sb.Append("  ·  ").Append(d.Date);
+                    if (!string.IsNullOrEmpty(d.Note)) sb.Append("\r\n    ").Append(d.Note.Replace("\r", " ").Replace("\n", " "));
+                    sb.Append("\r\n");
+                }
+                text = sb.ToString().TrimEnd();
+            }
+            AddBox(text, 170, true, 10);
+            AddText(L.T("Ingin nama Anda tercantum? Tulis nama di catatan donasi.", "Want your name listed? Add it to the donation note."),
+                    SmallFont, Muted, 14);
+            Button[] b = AddButtons(L.T("Donasi", "Donate"), L.T("Tutup", "Close"));
+            b[0].Click += delegate { Updater.OpenUrl(DonateUrl); };
+            b[1].Click += delegate { Close(); };
+            AcceptButton = b[0];
+            End();
         }
     }
 }

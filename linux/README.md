@@ -2,7 +2,7 @@
 
 Icon tray Linux (AppIndicator / StatusNotifierItem) untuk memantau usage **Claude** (`claude` CLI) dan **ChatGPT** (Codex CLI), jendela 5 jam & 7 hari.
 
-- **Klik icon** → menu berisi usage 5 jam & 7 hari (dengan bar teks dan titik warna), waktu reset, plan, email, Refresh, **Tampilkan akun**, *Jalankan saat login*, **ⓘ Tentang & update…**, Keluar.
+- **Klik icon** → menu berisi usage 5 jam & 7 hari (dengan bar teks dan titik warna), waktu reset, plan, email, Refresh, **Tampilkan akun**, *Jalankan saat login*, **⚙ Bahasa** (Ikuti sistem / Bahasa Indonesia / English), **♥ Donatur & donasi…**, **ⓘ Tentang & update…**, Keluar.
 - **Tampilkan akun** berisi centang Claude dan/atau ChatGPT, hanya untuk CLI yang terpasang. Minimal satu harus tercentang. Pilihan disimpan di `~/.config/usagemonitor/settings.json`.
 - Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan: Claude di atas, ChatGPT di bawah.
 - Warna: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%. Notifikasi (`notify-send`) saat usage ≥ 90%.

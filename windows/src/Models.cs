@@ -28,8 +28,8 @@ namespace UsageMonitor
         public string Plan;
         public string Account;
         public string Error;
-        public UsageWindow Five = new UsageWindow("5 jam");
-        public UsageWindow Week = new UsageWindow("7 hari");
+        public UsageWindow Five = new UsageWindow(L.T("5 jam", "5 hours"));
+        public UsageWindow Week = new UsageWindow(L.T("7 hari", "7 days"));
         /// Extra limits after 5h/7d, e.g. Claude's weekly limit for one model ("7 hari · Fable").
         public List<UsageWindow> MoreRows = new List<UsageWindow>();
         /// Extra info lines: Claude "Limit resets" grants, ChatGPT "usage limit reset" credits.

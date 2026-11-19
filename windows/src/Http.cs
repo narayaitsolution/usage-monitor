@@ -45,7 +45,7 @@ namespace UsageMonitor
             catch (WebException ex)
             {
                 var r = ex.Response as HttpWebResponse;
-                if (r == null) throw new Exception("Koneksi gagal: " + ex.Message);
+                if (r == null) throw new Exception(L.T("Koneksi gagal: ", "Connection failed: ") + ex.Message);
                 string body = "";
                 try { using (var sr = new StreamReader(r.GetResponseStream())) body = sr.ReadToEnd(); } catch { }
                 if (body.Length > 120) body = body.Substring(0, 120);

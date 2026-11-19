@@ -20,6 +20,8 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 - [Linux](#linux)
 - [Update aplikasi](#update-aplikasi)
 - [Menu dan pengaturan](#menu-dan-pengaturan)
+- [Bahasa](#bahasa)
+- [Donasi](#donasi)
 - [Cara kerja & privasi](#cara-kerja--privasi)
 - [Pemecahan masalah](#pemecahan-masalah)
 - [Struktur repository](#struktur-repository)
@@ -47,6 +49,9 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 - **Refresh otomatis tiap 5 menit**, plus tombol refresh **↻** di pojok kanan atas popup.
 - **Cek update otomatis** setiap aplikasi dibuka: jika ada versi baru, muncul jendela berisi versi terbaru dan catatan rilisnya dengan pilihan **Update** (unduh otomatis ke folder Downloads) atau **Skip**. Lihat [Update aplikasi](#update-aplikasi).
 - **Tombol ⓘ** di sebelah tombol refresh: informasi aplikasi (versi, tautan, lisensi) dan tombol **Periksa update** untuk update manual.
+- **Tombol ⚙ (pengaturan)** di pojok kanan atas popup: membuka menu yang sama dengan klik kanan icon (pilihan akun, jalankan saat login, bahasa, dan lainnya).
+- **Dua bahasa: Bahasa Indonesia dan English.** Secara default mengikuti bahasa sistem; bisa diganti lewat menu **Bahasa / Language**. Semua teks di aplikasi ikut berganti. Lihat [Bahasa](#bahasa).
+- **Tombol ♥ (donatur)**: daftar donatur aplikasi dan tombol **Donasi**. Lihat [Donasi](#donasi).
 - **Pilih akun yang ditampilkan** (Claude, ChatGPT, atau keduanya). Hanya CLI yang terpasang di komputer yang muncul di pilihan.
 - **Jalankan otomatis saat login** (opsional).
 - **Tahan terhadap rate limit**: bila server membalas HTTP 429, data terakhir tetap ditampilkan dan aplikasi menunda pengecekan secara bertahap.
@@ -130,9 +135,11 @@ build.cmd install
 | Aksi | Hasil |
 |---|---|
 | **Klik kiri** icon | Membuka/menutup popup usage |
+| **♥** di popup | Jendela *Donatur*: daftar donatur dan tombol **Donasi** |
 | **↻** di popup | Refresh sekarang |
 | **ⓘ** di popup | Jendela *Tentang*: versi aplikasi dan tombol **Periksa update** |
-| **Klik kanan** icon | Menu: Tampilkan usage, Refresh sekarang, **Tampilkan akun**, Jalankan saat Windows start, Tentang & update…, Keluar |
+| **⚙** di popup | Menu pengaturan (sama dengan klik kanan icon) |
+| **Klik kanan** icon | Menu: Tampilkan usage, Refresh sekarang, **Tampilkan akun**, Jalankan saat Windows start, **Bahasa**, Donatur & donasi…, Tentang & update…, Keluar |
 | **Hover** icon | Ringkasan, misalnya `Claude 5h 18% \| 7d 46%` |
 | **Esc** / klik di luar popup | Menutup popup |
 
@@ -170,8 +177,8 @@ Icon muncul di menu bar (aplikasi tidak tampil di Dock). Jika ingin, salin `Usag
 
 | Aksi | Hasil |
 |---|---|
-| **Klik** icon | Membuka popover usage (berisi tombol ↻ refresh, ⓘ tentang & update, Jalankan saat login, Keluar) |
-| **Klik kanan** / **Control+klik** | Menu: Tampilkan usage, Refresh, **Tampilkan akun**, Jalankan saat login, Tentang & update…, Keluar |
+| **Klik** icon | Membuka popover usage (berisi tombol ♥ donatur, ↻ refresh, ⓘ tentang & update, ⚙ pengaturan, Jalankan saat login, Keluar) |
+| **Klik kanan** / **Control+klik**, atau **⚙** di popover | Menu: Tampilkan usage, Refresh, **Tampilkan akun**, Jalankan saat login, **Bahasa**, Donatur & donasi…, Tentang & update…, Keluar |
 | **Hover** icon | Ringkasan usage |
 
 ### Menghapus
@@ -212,8 +219,12 @@ Di Linux, klik icon tray standar selalu membuka **menu** (bukan jendela). Menu b
 - Refresh sekarang
 - **Tampilkan akun** (centang Claude / ChatGPT)
 - Jalankan saat login
+- **⚙ Bahasa** (Ikuti sistem / Bahasa Indonesia / English)
+- **♥ Donatur & donasi…** (daftar donatur dan tombol Donasi)
 - **ⓘ Tentang & update…** (informasi aplikasi dan tombol Periksa update)
 - Keluar
+
+Karena di Linux klik icon sudah membuka menu, menu ini sekaligus berfungsi sebagai menu pengaturan.
 
 ### Menghapus
 
@@ -268,10 +279,52 @@ Jika sedang offline atau GitHub tidak bisa dihubungi, pengecekan dilewati tanpa 
 | | Windows | macOS | Linux |
 |---|---|---|---|
 | Pilihan akun | Registry `HKCU\Software\UsageMonitor` | UserDefaults `com.usagemonitor.app` | `~/.config/usagemonitor/settings.json` |
+| Bahasa | Registry `HKCU\Software\UsageMonitor` (`Language`) | UserDefaults `com.usagemonitor.app` (`language`) | `~/.config/usagemonitor/settings.json` (`language`) |
 | Versi update yang di-skip | Registry `HKCU\Software\UsageMonitor` (`SkippedVersion`) | UserDefaults `com.usagemonitor.app` (`skippedVersion`) | `~/.config/usagemonitor/settings.json` (`skipped_version`) |
 | Jalankan saat login | Registry `HKCU\...\CurrentVersion\Run` | `~/Library/LaunchAgents/com.usagemonitor.app.plist` | `~/.config/autostart/usagemonitor.desktop` |
 
 Opsi *jalankan saat login* menyimpan lokasi aplikasi saat itu. Jika aplikasi dipindah, matikan lalu aktifkan lagi opsinya.
+
+---
+
+## Bahasa
+
+Usage Monitor tersedia dalam **Bahasa Indonesia** dan **English**. Semua teks di aplikasi (popup, menu, notifikasi, pesan error, jendela Tentang, Update, dan Donatur, serta format waktu reset) mengikuti bahasa yang dipilih.
+
+Pilih lewat menu klik kanan (atau tombol **⚙** di popup) → **Bahasa / Language**:
+
+| Pilihan | Hasil |
+|---|---|
+| **Ikuti sistem** (default) | Bahasa Indonesia jika bahasa tampilan sistem adalah Indonesia, selain itu English |
+| **Bahasa Indonesia** | Selalu Bahasa Indonesia |
+| **English** | Selalu English |
+
+Bahasa sistem dibaca dari: Windows — bahasa tampilan (*Display language*); macOS — bahasa pertama di *Preferred Languages*; Linux — variabel `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, atau `LANG`.
+
+Format waktu reset ikut berganti: `↻ 2j 12m · Kam 13:00` (h = hari, j = jam, m = menit) menjadi `↻ 2h 12m · Thu 13:00` (d = day, h = hour, m = minute).
+
+---
+
+## Donasi
+
+Usage Monitor gratis dan open source. Jika aplikasi ini bermanfaat, dukung pengembangannya lewat **[halaman donasi](https://lynk.id/narayait/rp8r1z3rop0w/checkout)**.
+
+Di aplikasi, tombol **♥** di popup (atau menu → **Donatur & donasi…**) membuka jendela berisi daftar donatur dan tombol **Donasi**.
+
+**Daftar donatur** dibaca dari file [`donors.json`](donors.json) di branch `main` repository ini, jadi daftar bisa diperbarui tanpa merilis versi baru:
+
+```json
+{
+  "donate_url": "https://lynk.id/narayait/rp8r1z3rop0w/checkout",
+  "donors": [
+    { "name": "Budi", "note": "Semangat terus!", "date": "2026-11-19" },
+    { "name": "Ani" }
+  ]
+}
+```
+
+- `name` wajib; `note` (pesan) dan `date` opsional.
+- `donate_url` adalah tujuan tombol **Donasi**. Jika file tidak bisa dimuat, aplikasi memakai link bawaan.
 
 ---
 
@@ -288,6 +341,7 @@ Aplikasi **hanya membaca**. Endpoint untuk *memakai* jatah reset (`.../rate-limi
 
 - Token **tidak pernah diubah, di-refresh, atau dikirim ke pihak lain**. Aplikasi tidak menulis ke file kredensial, sehingga tidak mengganggu sesi CLI.
 - Tidak ada telemetry atau server pihak ketiga.
+- **Daftar donatur** dimuat dari `https://raw.githubusercontent.com/narayaitsolution/usage-monitor/main/donors.json` (tanpa data pribadi) hanya saat jendela Donatur dibuka.
 - **Cek update** hanya mengirim satu request tanpa data pribadi ke API publik GitHub (`GET https://api.github.com/repos/narayaitsolution/usage-monitor/releases/latest`) saat aplikasi dibuka atau saat menekan **Periksa update**. File update hanya diunduh jika kamu menekan **Update**.
 - **Request usage Claude mengaku sebagai claude-cli** (header `x-app: cli` dan `User-Agent: claude-cli/…`). Server Anthropic hanya mengirim daftar *Limit resets* ke aplikasi resminya, jadi tanpa header ini daftar tersebut kosong. Ini bukan cara yang didukung resmi oleh Anthropic: bisa berhenti bekerja sewaktu-waktu, dan pengguna menanggung risikonya sendiri. Versi claude-cli yang ditiru diatur di konstanta `ClaudeCliUserAgent` (Windows), `claudeCliUserAgent` (macOS), dan `CLAUDE_CLI_USER_AGENT` (Linux).
 - Jika token kedaluwarsa, cukup jalankan `claude` atau `codex` sekali; CLI akan memperbaruinya dan Usage Monitor pulih sendiri.
@@ -327,6 +381,7 @@ python3 usagemonitor.py --test
 .
 ├── README.md
 ├── LICENSE
+├── donors.json              daftar donatur & link donasi (dibaca aplikasi)
 ├── windows/
 │   ├── build.cmd            build dengan csc.exe bawaan Windows
 │   └── src/
@@ -338,7 +393,8 @@ python3 usagemonitor.py --test
 │       ├── TrayContext.cs   icon tray, menu, timer, back-off 429, startup, cek update
 │       ├── PopupForm.cs     popup (digambar custom, DPI-aware)
 │       ├── Updater.cs       versi aplikasi, pengaturan, cek & unduh update dari GitHub
-│       └── UpdateForms.cs   jendela Tentang (ⓘ) dan Update
+│       ├── I18n.cs          pilihan bahasa (Indonesia / English)
+│       └── UpdateForms.cs   jendela Tentang (ⓘ), Update, dan Donatur (♥)
 ├── macos/
 │   ├── build.sh             build UsageMonitor.app dengan swiftc
 │   └── Sources/UsageMonitor.swift
@@ -355,7 +411,8 @@ Kontribusi dipersilakan — fork, buat perubahan, lalu kirim pull request.
 **Windows**
 - Dikompilasi dengan compiler bawaan .NET Framework (`csc.exe`) yang hanya mendukung **C# 5**. Hindari string interpolation (`$"..."`), operator `?.`, `nameof`, dan expression-bodied members.
 - `UsageMonitor.exe --preview popup.png [claude,codex]` merender popup dengan data asli ke file PNG.
-- `UsageMonitor.exe --preview-about about.png` / `--preview-update update.png` merender jendela Tentang / Update ke PNG.
+- `UsageMonitor.exe --preview-about about.png` / `--preview-update update.png` / `--preview-donors donors.png` merender jendela Tentang / Update / Donatur ke PNG.
+- Teks baru ditulis dalam dua bahasa dengan `L.T("teks Indonesia", "English text")` (Windows), `T(...)` (macOS & Linux).
 - `UsageMonitor.exe --check-update hasil.txt` mengecek rilis terbaru di GitHub tanpa GUI.
 
 **macOS**
@@ -365,6 +422,7 @@ Kontribusi dipersilakan — fork, buat perubahan, lalu kirim pull request.
 - Satu file Python tanpa dependensi pip. Icon PNG dibuat dengan Python murni.
 - `python3 usagemonitor.py --icon icon.png [claude,codex]` menulis icon tray dengan data asli.
 - `python3 usagemonitor.py --check-update` mengecek rilis terbaru di GitHub tanpa GUI.
+- `python3 usagemonitor.py --donors` menampilkan daftar donatur dari `donors.json`.
 
 **Membuat rilis baru**
 
