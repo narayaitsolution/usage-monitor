@@ -1,4 +1,4 @@
-// Usage Monitor (macOS) - menu bar monitor for Claude (claude CLI) and ChatGPT (Codex CLI) usage limits.
+// Usage Monitor (macOS) - menu bar monitor for Claude (claude CLI), ChatGPT (Codex CLI) and Antigravity (agy CLI) usage limits.
 // Build with ./build.sh (requires Xcode Command Line Tools, macOS 12+).
 import Cocoa
 import SwiftUI
@@ -21,7 +21,15 @@ struct ProviderStatus {
     var week = UsageWindow(label: T("7 hari", "7 days"))
     var moreRows: [UsageWindow] = []   // extra limits, e.g. Claude's weekly limit for one model
     var infos: [String] = []           // extra lines: Claude "Limit resets", ChatGPT "usage limit reset" credits
-    var rows: [UsageWindow] { [five, week] + moreRows }
+    var fixedRows = true      // false for providers without the 5h/7d pair (Antigravity)
+    var rows: [UsageWindow] { (fixedRows ? [five, week] : []) + moreRows }
+    /// Bars in the menu bar icon: 5h & 7d, or the first two limits (Antigravity: one per model group).
+    var iconValues: [Double?] {
+        if fixedRows { return [five.percent, week.percent] }
+        let v = moreRows.prefix(2).map { $0.percent }
+        return v.isEmpty ? [nil] : Array(v)
+    }
+    var keepPrevious = false  // soft error (expired token): keep showing the last good data
     var rateLimited = false   // server answered HTTP 429
     var note: String?         // shown under the rows, e.g. when displaying older data
     var fetchedAt: Date?
@@ -35,6 +43,7 @@ enum FetchError: Error {
 let refreshInterval: TimeInterval = 5 * 60
 let claudeAccent = Color(red: 217 / 255, green: 119 / 255, blue: 87 / 255)
 let gptAccent = Color(red: 16 / 255, green: 163 / 255, blue: 127 / 255)
+let agyAccent = Color(red: 66 / 255, green: 133 / 255, blue: 244 / 255)
 let homeDir = FileManager.default.homeDirectoryForCurrentUser
 
 // MARK: - Language
@@ -95,9 +104,15 @@ func parseISODate(_ s: String) -> Date? {
     return f.date(from: cleaned)
 }
 
-func httpGet(_ url: String, _ headers: [String: String]) async throws -> [String: Any] {
+/// GET, or POST with a JSON body when body is given.
+func httpGet(_ url: String, _ headers: [String: String], body: [String: Any]? = nil) async throws -> [String: Any] {
     var req = URLRequest(url: URL(string: url)!)
     req.timeoutInterval = 20
+    if let body = body {
+        req.httpMethod = "POST"
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.setValue(AppInfo.userAgent, forHTTPHeaderField: "User-Agent")
     for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
@@ -314,6 +329,107 @@ func fetchCodex() async -> ProviderStatus {
     return s
 }
 
+// MARK: - Antigravity
+
+// agy keeps its Google sign-in in the login Keychain (go-keyring: service "gemini", account "antigravity"),
+// as JSON {"token": {"access_token", "expiry", ...}, "id_token_email"}. The token is only read, never
+// refreshed: agy refreshes it (about every hour) while it runs.
+let cloudCode = "https://cloudcode-pa.googleapis.com/v1internal:"
+// The quota endpoints answer 403 to unknown clients, so the requests identify themselves as agy
+let antigravityUserAgent = "antigravity"
+var agyCache: [String: (project: String, plan: String?)] = [:]   // account -> loadCodeAssist result
+
+func agyCredentials() -> [String: Any]? {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+    p.arguments = ["find-generic-password", "-s", "gemini", "-a", "antigravity", "-w"]
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = Pipe()
+    guard (try? p.run()) != nil else { return nil }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0,
+          var text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+    let prefix = "go-keyring-base64:"
+    if text.hasPrefix(prefix), let d = Data(base64Encoded: String(text.dropFirst(prefix.count))),
+       let decoded = String(data: d, encoding: .utf8) { text = decoded }
+    return parseJSON(Data(text.utf8))
+}
+
+func agyWindowLabel(_ window: String?, _ displayName: String?) -> String {
+    switch (window ?? "").lowercased() {
+    case "weekly": return T("7 hari", "7 days")
+    case "daily": return T("1 hari", "1 day")
+    case "hourly": return T("1 jam", "1 hour")
+    case "five_hour", "5h": return T("5 jam", "5 hours")
+    default: return (window?.isEmpty == false ? window : displayName) ?? "Limit"
+    }
+}
+
+/// "Claude and GPT models" -> "Claude & GPT"
+func agyGroupName(_ name: String?) -> String? {
+    guard var n = name, !n.isEmpty else { return nil }
+    if n.lowercased().hasSuffix(" models") { n = String(n.dropLast(7)) }
+    return n.replacingOccurrences(of: " and ", with: " & ")
+}
+
+func fetchAntigravity() async -> ProviderStatus {
+    var s = ProviderStatus(name: "Antigravity")
+    s.fixedRows = false
+    guard let cred = agyCredentials() else {
+        s.error = T("Belum login. Jalankan 'agy' lalu login dengan akun Google.", "Not logged in. Run 'agy' and sign in with Google.")
+        return s
+    }
+    let tok = cred["token"] as? [String: Any] ?? [:]
+    s.account = cred["id_token_email"] as? String
+    guard let token = tok["access_token"] as? String, !token.isEmpty else {
+        s.error = T("Token tidak ditemukan. Login ulang lewat 'agy'.", "Token not found. Sign in again with 'agy'.")
+        return s
+    }
+    if let e = tok["expiry"] as? String, let exp = parseISODate(e), exp < Date() {
+        s.error = T("Token kedaluwarsa. Jalankan 'agy' agar token di-refresh.", "Token expired. Run 'agy' to refresh it.")
+        s.keepPrevious = true
+        return s
+    }
+    let headers = ["Authorization": "Bearer \(token)", "User-Agent": antigravityUserAgent]
+    let key = s.account ?? ""
+    do {
+        if agyCache[key] == nil {
+            let lca = try await httpGet(cloudCode + "loadCodeAssist", headers, body:
+                ["metadata": ["ideType": "ANTIGRAVITY", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]])
+            let plan = (lca["paidTier"] as? [String: Any])?["name"] as? String
+                ?? (lca["currentTier"] as? [String: Any])?["name"] as? String
+            agyCache[key] = (lca["cloudaicompanionProject"] as? String ?? "", plan)
+        }
+        let cached = agyCache[key]!
+        s.plan = cached.plan
+        let root = try await httpGet(cloudCode + "retrieveUserQuotaSummary", headers, body: ["project": cached.project])
+        for gr in root["groups"] as? [[String: Any]] ?? [] {
+            let group = agyGroupName(gr["displayName"] as? String)
+            for b in gr["buckets"] as? [[String: Any]] ?? [] {
+                if b["disabled"] as? Bool == true { continue }
+                let win = agyWindowLabel(b["window"] as? String, b["displayName"] as? String)
+                var w = UsageWindow(label: group.map { win + " · " + $0 } ?? win)
+                if let frac = num(b["remainingFraction"]) {
+                    w.percent = min(100, max(0, (1 - frac) * 100))
+                } else if let amount = num(b["remainingAmount"]) {
+                    w.label += T(" (sisa \(Int(amount)))", " (\(Int(amount)) left)")
+                }
+                w.resetAt = (b["resetTime"] as? String).flatMap(parseISODate)
+                s.moreRows.append(w)
+            }
+        }
+        if s.moreRows.isEmpty { s.infos.append(T("Tidak ada batas kuota untuk akun ini.", "No quota limits reported for this account.")) }
+    } catch {
+        agyCache[key] = nil
+        s.error = errorText(error, cli: "agy")
+        if case FetchError.http(429, _) = error { s.rateLimited = true }
+        if case FetchError.http(401, _) = error { s.keepPrevious = true }
+    }
+    return s
+}
+
 // MARK: - Formatting
 
 /// Same rule for 5h/7d, Claude/ChatGPT: <50 green, 50-75 orange, >75 red.
@@ -421,6 +537,9 @@ let allProviders: [ProviderDef] = [
     ProviderDef(id: "codex", title: "ChatGPT", menuTitle: "ChatGPT (Codex)", accent: gptAccent,
                 fetch: { await fetchCodex() },
                 installed: { dirExists(codexHomeDir()) || commandExists("codex") }),
+    ProviderDef(id: "antigravity", title: "Antigravity", menuTitle: "Antigravity (agy)", accent: agyAccent,
+                fetch: { await fetchAntigravity() },
+                installed: { dirExists(homeDir.appendingPathComponent(".gemini/antigravity-cli")) || commandExists("agy") }),
 ]
 
 /// Providers whose CLI is installed. If none is detected, all are offered so the "belum login" hints show.
@@ -499,6 +618,13 @@ final class Store: ObservableObject {
                 return
             }
             r.error = T("Dibatasi server (429). Dicoba lagi ", "Rate limited by the server (429). Retrying at ") + f.string(from: retry) + "."
+        } else if r.keepPrevious, var prev = data[id], prev.error == nil {
+            // soft error (expired token): keep showing the last good data
+            let f = DateFormatter()
+            f.dateFormat = "HH:mm"
+            prev.note = (r.error ?? "") + T(" · data ", " · data from ") + (prev.fetchedAt.map { f.string(from: $0) } ?? "-")
+            data[id] = prev
+            return
         } else {
             backoffMin[id] = nil
             nextAllowed[id] = nil
@@ -696,15 +822,20 @@ struct PopupView: View {
 /// Two bars (5h, 7d) per shown provider, stacked in menu order.
 func makeIcon(_ statuses: [ProviderStatus?]) -> NSImage {
     let width: CGFloat = 18, height: CGFloat = 16
-    let n = CGFloat(max(1, statuses.count))
-    let gap: CGFloat = 1, groupGap: CGFloat = 2
-    let fixed = n * gap + (n - 1) * groupGap
-    let barH = max(1, min(7, floor((height - fixed) / (2 * n))))
+    let groups: [[Double?]] = statuses.map { p in
+        guard let p = p, p.error == nil else { return [nil, nil] }
+        return p.iconValues
+    }
+    let n = CGFloat(max(1, groups.count))
+    let bars = CGFloat(max(1, groups.reduce(0) { $0 + $1.count }))
+    let gap: CGFloat = 1, groupGap: CGFloat = bars > 4 ? 1 : 2
+    let fixed = (bars - n) * gap + (n - 1) * groupGap
+    let barH = max(1, min(7, floor((height - fixed) / bars)))
     let img = NSImage(size: NSSize(width: width, height: height), flipped: true) { _ in
-        var y = max(0, floor((height - (2 * n * barH + fixed)) / 2))
-        for p in statuses {
+        var y = max(0, floor((height - (bars * barH + fixed)) / 2))
+        for (p, values) in zip(statuses, groups) {
             let err = p?.error != nil
-            for pct in [p?.five.percent, p?.week.percent] {
+            for pct in values {
                 let track = err ? NSColor.systemRed.withAlphaComponent(0.4) : NSColor.gray.withAlphaComponent(0.5)
                 track.setFill()
                 NSRect(x: 0, y: y, width: width, height: barH).fill()
@@ -727,6 +858,11 @@ func makeIcon(_ statuses: [ProviderStatus?]) -> NSImage {
 func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
     guard let p = p else { return title + T(": memuat…", ": loading…") }
     if p.error != nil { return "\(title): error" }
+    if !p.fixedRows {
+        let r = p.rows
+        if r.isEmpty { return "\(title) -" }
+        return "\(title) 7d \(pctText(r[0].percent))" + (r.count > 1 ? " | \(pctText(r[1].percent))" : "")
+    }
     return "\(title) 5h \(pctText(p.five.percent)) | 7d \(pctText(p.week.percent))"
 }
 
@@ -735,7 +871,7 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "2.2"
+    static let version = "3.0"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
@@ -1082,14 +1218,14 @@ struct AboutView: View {
                     Text(T("Versi ", "Version ") + AppInfo.version).foregroundColor(.secondary)
                 }
             }
-            Text(T("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari menu bar.",
-                   "Shows the remaining usage limits (5 hours & 7 days) of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts in the menu bar."))
+            Text(T("Memantau sisa batas pemakaian akun Claude (claude CLI) dan ChatGPT (Codex CLI) — 5 jam & 7 hari — serta kuota mingguan Antigravity (agy CLI) dari menu bar.",
+                   "Shows the remaining usage limits of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts (5 hours & 7 days) and your weekly Antigravity (agy CLI) quota in the menu bar."))
                 .fixedSize(horizontal: false, vertical: true)
             if let url = URL(string: AppInfo.repoURL) {
                 Link(AppInfo.repoURL, destination: url)
             }
-            Text(T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
-                   "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic or OpenAI."))
+            Text(T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic, OpenAI, maupun Google.",
+                   "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic, OpenAI or Google."))
                 .font(.system(size: 11)).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(model.status)
@@ -1487,7 +1623,7 @@ struct UsageMonitorMain {
             Task {
                 let inst = allProviders.filter { $0.installed() }.map { $0.id }
                 print("installed: " + (inst.isEmpty ? "(none)" : inst.joined(separator: ",")))
-                for p in [await fetchClaude(), await fetchCodex()] {
+                for p in [await fetchClaude(), await fetchCodex(), await fetchAntigravity()] {
                     print("\(p.name) plan=\(p.plan ?? "-") account=\(p.account ?? "-") error=\(p.error ?? "-")")
                     for w in p.rows { print("  \(w.label): \(pctText(w.percent)) | \(shortReset(w.resetAt))") }
                     for info in p.infos { print("  " + info) }

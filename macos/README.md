@@ -1,12 +1,12 @@
 # Usage Monitor — macOS
 
-Aplikasi menu bar macOS untuk memantau usage **Claude** (`claude` CLI) dan **ChatGPT** (Codex CLI), jendela 5 jam & 7 hari.
+Aplikasi menu bar macOS untuk memantau usage **Claude** (`claude` CLI) dan **ChatGPT** (Codex CLI), jendela 5 jam & 7 hari, serta kuota mingguan **Antigravity** (`agy` CLI).
 
 - **Klik icon** di menu bar → popover berisi usage 5 jam & 7 hari, waktu reset, plan, email, tombol **♥** (donatur), **↻** (refresh), **ⓘ** (tentang & update), dan **⚙** (pengaturan: menu yang sama dengan klik kanan), opsi *Jalankan saat login*, dan Keluar.
-- **Klik kanan** (atau Control+klik) → menu: Refresh, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat login, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
+- **Klik kanan** (atau Control+klik) → menu: Refresh, **Tampilkan akun** (centang Claude, ChatGPT, dan/atau Antigravity), Jalankan saat login, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
   - Pilihan akun hanya berisi CLI yang terpasang di Mac ini. Minimal satu akun harus tercentang. Pilihan disimpan di UserDefaults.
 - **Hover** → ringkasan usage.
-- Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan: Claude di atas, ChatGPT di bawah.
+- Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan (Antigravity: 1 bar per grup model, maks. 2), urut Claude, ChatGPT, Antigravity.
 - Warna bar: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%. Notifikasi saat usage ≥ 90%.
 - Refresh otomatis tiap 5 menit.
 - **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ → Periksa update**. Versi baru diunduh ke folder Downloads (file rilis `-macos.zip`/`.dmg`, atau kode sumber jika rilis tidak menyertakannya); ganti `UsageMonitor.app` secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut.
@@ -15,7 +15,7 @@ Aplikasi menu bar macOS untuk memantau usage **Claude** (`claude` CLI) dan **Cha
 
 - macOS 12 (Monterey) atau lebih baru.
 - Xcode Command Line Tools: `xcode-select --install`
-- `claude` CLI login dengan akun langganan (Pro/Max), Codex CLI login dengan **Sign in with ChatGPT**.
+- `claude` CLI login dengan akun langganan (Pro/Max), Codex CLI login dengan **Sign in with ChatGPT**, `agy` login dengan akun Google (login dibaca dari Keychain, item `gemini` / akun `antigravity`).
 
 ## Build & jalankan
 

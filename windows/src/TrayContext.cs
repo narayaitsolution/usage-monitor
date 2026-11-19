@@ -287,6 +287,12 @@ namespace UsageMonitor
                 }
                 r.Error = L.T("Dibatasi server (429). Dicoba lagi ", "Rate limited by the server (429). Retrying at ") + retry.ToString("HH:mm") + ".";
             }
+            else if (r.KeepPrevious && prev != null && prev.Error == null)
+            {
+                // soft error (e.g. expired token): keep showing the last good data
+                prev.Note = r.Error + L.T(" · data ", " · data from ") + prev.FetchedAt.ToString("HH:mm");
+                return;
+            }
             else
             {
                 backoffMin.Remove(d.Id);
@@ -378,7 +384,23 @@ namespace UsageMonitor
             var p = Get(d);
             if (p == null) return d.Short + L.T(": memuat...", ": loading...");
             if (p.Error != null) return d.Short + ": error";
-            return d.Short + " 5h " + Pct(p.Five.Percent) + " | 7d " + Pct(p.Week.Percent);
+            if (p.FixedRows) return d.Short + " 5h " + Pct(p.Five.Percent) + " | 7d " + Pct(p.Week.Percent);
+            var rows = p.Rows();
+            return d.Short + (rows.Count == 0 ? " -" : " 7d " + Pct(rows[0].Percent)
+                              + (rows.Count > 1 ? " | " + Pct(rows[1].Percent) : ""));
+        }
+
+        /// Bars of one provider in the tray icon: 5h & 7d, or the first two limits (Antigravity: one per model group).
+        List<double?> IconValues(ProviderDef d, out bool err)
+        {
+            var st = Get(d);
+            err = st != null && st.Error != null;
+            var v = new List<double?>();
+            if (st == null || err) { v.Add(null); v.Add(null); return v; }
+            if (st.FixedRows) { v.Add(st.Five.Percent); v.Add(st.Week.Percent); return v; }
+            foreach (var r in st.Rows()) { if (v.Count < 2) v.Add(r.Percent); }
+            if (v.Count == 0) v.Add(null);
+            return v;
         }
 
         static string Pct(double? v) { return v.HasValue ? Math.Round(v.Value) + "%" : "-"; }
@@ -396,19 +418,30 @@ namespace UsageMonitor
                     g.Clear(Color.Transparent);
                     g.SmoothingMode = SmoothingMode.None;
                     float u = sz.Height / 16f;
-                    int n = defs.Count;
-                    int gap = Math.Max(1, (int)Math.Round(u)), groupGap = Math.Max(1, (int)Math.Round(2 * u));
-                    int fixedSpace = n * gap + (n - 1) * groupGap;
-                    int barH = Math.Max(1, (sz.Height - fixedSpace) / (2 * n));
-                    int y = Math.Max(0, (sz.Height - (2 * n * barH + fixedSpace)) / 2);
+                    var groups = new List<List<double?>>();
+                    var errs = new List<bool>();
+                    int bars = 0;
                     foreach (var d in defs)
                     {
-                        var st = Get(d);
-                        bool err = st != null && st.Error != null;
-                        DrawBar(g, st == null || err ? null : st.Five.Percent, err, y, sz.Width, barH);
-                        y += barH + gap;
-                        DrawBar(g, st == null || err ? null : st.Week.Percent, err, y, sz.Width, barH);
-                        y += barH + groupGap;
+                        bool err;
+                        var v = IconValues(d, out err);
+                        groups.Add(v); errs.Add(err); bars += v.Count;
+                    }
+                    int n = groups.Count;
+                    int gap = Math.Max(1, (int)Math.Round(u)), groupGap = Math.Max(1, (int)Math.Round(2 * u));
+                    if (bars > 4) groupGap = gap; // 3 providers: keep the bars visible in 16 px
+                    int fixedSpace = (bars - n) * gap + (n - 1) * groupGap;
+                    int barH = Math.Max(1, (sz.Height - fixedSpace) / bars);
+                    int y = Math.Max(0, (sz.Height - (bars * barH + fixedSpace)) / 2);
+                    for (int i = 0; i < n; i++)
+                    {
+                        for (int j = 0; j < groups[i].Count; j++)
+                        {
+                            if (j > 0) y += gap;
+                            DrawBar(g, groups[i][j], errs[i], y, sz.Width, barH);
+                            y += barH;
+                        }
+                        y += groupGap;
                     }
                 }
                 IntPtr h = bmp.GetHicon();

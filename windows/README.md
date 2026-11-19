@@ -1,13 +1,13 @@
 # Usage Monitor — Windows
 
-Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `claude` CLI) dan **ChatGPT** (login via Codex CLI) — jendela **5 jam** dan **7 hari**.
+Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `claude` CLI) dan **ChatGPT** (login via Codex CLI) — jendela **5 jam** dan **7 hari** — serta kuota mingguan **Antigravity** (login via `agy` CLI).
 
 - **Klik kiri** icon tray → popup berisi usage 5 jam & 7 hari, waktu reset, plan, dan email akun. Di pojok kanan atas ada tombol **♥** (donatur), **↻** (refresh), **ⓘ** (tentang & update), dan **⚙** (pengaturan: menu yang sama dengan klik kanan).
-- **Klik kanan** → Refresh sekarang, **Tampilkan akun** (centang Claude dan/atau ChatGPT), Jalankan saat Windows start, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
-  - Pilihan akun hanya berisi CLI yang terpasang di komputer ini (folder `~/.claude` / `~/.codex` ada, atau perintah `claude` / `codex` ada di PATH).
+- **Klik kanan** → Refresh sekarang, **Tampilkan akun** (centang Claude, ChatGPT, dan/atau Antigravity), Jalankan saat Windows start, **Bahasa** (Ikuti sistem / Bahasa Indonesia / English), Donatur & donasi…, Tentang & update…, Keluar.
+  - Pilihan akun hanya berisi CLI yang terpasang di komputer ini (folder `~/.claude` / `~/.codex` / `~/.gemini/antigravity-cli` ada, atau perintah `claude` / `codex` / `agy` ditemukan).
   - Minimal satu akun harus tercentang. Pilihan disimpan di `HKCU\Software\UsageMonitor`.
 - **Hover** → ringkasan, misalnya `Claude 5h 8% | 7d 45%`.
-- **Icon tray** berisi 2 bar mini (5h, 7d) per akun yang ditampilkan: Claude di atas, ChatGPT di bawah.
+- **Icon tray** berisi 2 bar mini (5h, 7d) per akun yang ditampilkan (Antigravity: 1 bar per grup model, maks. 2), urut Claude, ChatGPT, Antigravity.
 - Warna bar: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%.
 - Notifikasi Windows saat salah satu usage mencapai 90%.
 - Refresh otomatis tiap 5 menit, plus saat popup dibuka jika data lebih dari 60 detik.
@@ -18,6 +18,7 @@ Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `c
 - Windows 10 (1903+) atau Windows 11. .NET Framework 4.8 sudah bawaan, tidak perlu install apa pun.
 - `claude` CLI login dengan akun langganan (Pro/Max), bukan API key.
 - Codex CLI login dengan **Sign in with ChatGPT**, bukan API key.
+- `agy` (Antigravity CLI) login dengan akun Google. Token `agy` berlaku ±1 jam dan diperbarui selama `agy` berjalan; jika kedaluwarsa, data terakhir tetap ditampilkan.
 
 ## Build
 
@@ -58,6 +59,7 @@ Aplikasi hanya **membaca** token login yang sudah dibuat oleh masing-masing CLI.
 |---|---|---|
 | Claude | `%USERPROFILE%\.claude\.credentials.json` (email dari `%USERPROFILE%\.claude.json`) | `GET https://api.anthropic.com/api/oauth/usage` (header `anthropic-beta: oauth-2025-04-20`) |
 | ChatGPT | `%CODEX_HOME%\auth.json`, default `%USERPROFILE%\.codex\auth.json` | `GET https://chatgpt.com/backend-api/wham/usage` (header `ChatGPT-Account-Id`) |
+| Antigravity | Windows Credential Manager, entri `gemini:antigravity` (dibuat `agy`) | `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` dan `.../v1internal:retrieveUserQuotaSummary` (header `User-Agent: antigravity`) |
 
 Jika token kedaluwarsa atau ditolak (401/403), popup meminta kamu membuka `claude` / `codex` sekali agar CLI me-refresh token.
 
@@ -72,6 +74,7 @@ Jika token kedaluwarsa atau ditolak (401/403), popup meminta kamu membuka `claud
 | `src/Program.cs` | Entry point, single-instance mutex, mode `--test` / `--preview` / `--check-update`, info versi assembly |
 | `src/Models.cs` | `ProviderStatus`, `UsageWindow` |
 | `src/Fetcher.cs` | Membaca kredensial & memanggil API usage Claude / ChatGPT |
+| `src/Antigravity.cs` | Membaca login `agy` dari Credential Manager & memanggil API kuota Antigravity |
 | `src/Http.cs` | HTTP GET helper + `HttpException` |
 | `src/Json.cs` | Helper parsing JSON (`JavaScriptSerializer`) |
 | `src/TrayContext.cs` | Icon tray, menu, timer refresh, notifikasi, startup |

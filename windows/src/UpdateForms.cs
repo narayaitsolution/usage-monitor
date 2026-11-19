@@ -334,12 +334,12 @@ namespace UsageMonitor
             Controls.Add(name);
             Controls.Add(ver);
             y += Sc(48 + 14);
-            AddText(L.T("Memantau sisa batas pemakaian (5 jam & 7 hari) akun Claude (claude CLI) dan ChatGPT (Codex CLI) dari system tray.",
-                        "Shows the remaining usage limits (5 hours & 7 days) of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts in the system tray."),
+            AddText(L.T("Memantau sisa batas pemakaian akun Claude (claude CLI) dan ChatGPT (Codex CLI) — 5 jam & 7 hari — serta kuota mingguan Antigravity (agy CLI) dari system tray.",
+                        "Shows the remaining usage limits of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts (5 hours & 7 days) and your weekly Antigravity (agy CLI) quota in the system tray."),
                     BodyFont, Fg, 10);
             AddLink(AppInfo.RepoUrl, AppInfo.RepoUrl, 24);
-            AddText(L.T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic maupun OpenAI.",
-                        "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic or OpenAI."), SmallFont, Muted, 14);
+            AddText(L.T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic, OpenAI, maupun Google.",
+                        "© 2026 Naraya IT Solution · MIT License. Not affiliated with Anthropic, OpenAI or Google."), SmallFont, Muted, 14);
             status = AddText(L.T("Update dicek otomatis setiap aplikasi dibuka.", "Updates are checked automatically every time the app starts."),
                              SmallFont, Muted, 12, 34);
             Button[] b = AddButtons(L.T("Periksa update", "Check for updates"), L.T("Tutup", "Close"));

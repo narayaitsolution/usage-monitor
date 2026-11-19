@@ -14,7 +14,7 @@ using Microsoft.Win32;
 
 namespace UsageMonitor
 {
-    static class Fetcher
+    static partial class Fetcher
     {
         static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         public static readonly Color ClaudeColor = Color.FromArgb(217, 119, 87);
@@ -30,7 +30,7 @@ namespace UsageMonitor
         public static bool ClaudeInstalled() { return Directory.Exists(Path.Combine(Home, ".claude")) || OnPath("claude"); }
         public static bool CodexInstalled() { return Directory.Exists(CodexHome()) || OnPath("codex"); }
 
-        static bool OnPath(string name)
+        internal static bool OnPath(string name)
         {
             string path = Environment.GetEnvironmentVariable("PATH") ?? "";
             foreach (string dir in path.Split(Path.PathSeparator))
@@ -198,7 +198,7 @@ namespace UsageMonitor
             return null;
         }
 
-        static DateTime? ParseIso(string r)
+        internal static DateTime? ParseIso(string r)
         {
             DateTimeOffset dto;
             if (!string.IsNullOrEmpty(r) && DateTimeOffset.TryParse(r, CultureInfo.InvariantCulture, DateTimeStyles.None, out dto))

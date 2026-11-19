@@ -1,11 +1,12 @@
 # Usage Monitor
 
-**Usage Monitor** adalah aplikasi kecil di system tray / menu bar untuk memantau sisa batas pemakaian (usage limit) akun **Claude** dan **ChatGPT** yang login lewat CLI:
+**Usage Monitor** adalah aplikasi kecil di system tray / menu bar untuk memantau sisa batas pemakaian (usage limit) akun **Claude**, **ChatGPT**, dan **Antigravity** yang login lewat CLI:
 
 - **Claude** — login via [`claude` CLI (Claude Code)](https://docs.anthropic.com/en/docs/claude-code) dengan akun langganan Pro/Max
 - **ChatGPT** — login via [Codex CLI](https://github.com/openai/codex) dengan *Sign in with ChatGPT*
+- **Antigravity** *(baru di 3.0)* — login via Antigravity CLI (`agy`) dengan akun Google
 
-Aplikasi menampilkan pemakaian jendela **5 jam** dan **7 hari** untuk masing-masing akun, lengkap dengan waktu reset, tanpa perlu membuka terminal atau browser.
+Aplikasi menampilkan pemakaian jendela **5 jam** dan **7 hari** untuk Claude dan ChatGPT, serta **kuota mingguan per grup model** untuk Antigravity, lengkap dengan waktu reset, tanpa perlu membuka terminal atau browser.
 
 Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 
@@ -32,12 +33,13 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 
 ## Fitur
 
-- **Icon di system tray / menu bar** berisi bar mini: 2 bar (5 jam & 7 hari) untuk setiap akun yang ditampilkan — Claude di atas, ChatGPT di bawah.
+- **Icon di system tray / menu bar** berisi bar mini: 2 bar (5 jam & 7 hari) untuk Claude dan ChatGPT, dan 1 bar per grup model (maks. 2) untuk Antigravity — urut Claude, ChatGPT, Antigravity.
 - **Klik icon** untuk melihat detail yang ringkas: satu baris per limit berisi persentase, progress bar, dan waktu reset (`↻ 2j 12m · 13:00`, `↻ 3h 2j · Kam 13:00` — h = hari, j = jam, m = menit), plus jenis langganan dan email akun.
 - **Claude: semua limit beserta waktu reset-nya**, termasuk limit tambahan dari server seperti limit mingguan khusus model (misalnya `7 hari · Fable`).
 - **Claude: Limit resets** — daftar jatah reset yang sama dengan *Settings → Usage* di claude.ai dan `/usage` di claude-cli, beserta batas berlakunya (`↺ Full reset · s/d 11 Des 05:00`, `↺ Fable reset · s/d hari ini 14:59`).
+- **Antigravity: kuota mingguan per grup model** *(baru di 3.0)*, sama dengan `/usage` di `agy`, misalnya `7 hari · Claude & GPT` (model Claude Opus/Sonnet dan GPT-OSS berbagi satu kuota mingguan). Persentase = bagian kuota yang sudah terpakai. Paket akun (misalnya `GOOGLE AI PLUS`) dan email ikut ditampilkan.
 - **ChatGPT: Usage limit resets** — daftar jatah reset yang tersedia beserta batas berlakunya, sama seperti `/usage` di Codex CLI (`↺ Full reset (Weekly + 5 hr) · s/d 2 Des 05:04`). Jika detailnya gagal dimuat, ditampilkan jumlahnya saja (`↺ Usage limit reset: 2 tersedia`).
-- **Warna sesuai tingkat pemakaian** (sama untuk 5 jam & 7 hari, Claude & ChatGPT):
+- **Warna sesuai tingkat pemakaian** (sama untuk semua limit dan semua akun):
 
   | Pemakaian | Warna |
   |---|---|
@@ -53,7 +55,7 @@ Tersedia untuk **Windows**, **macOS**, dan **Linux**.
 - **Dua bahasa: Bahasa Indonesia dan English.** Secara default mengikuti bahasa sistem; bisa diganti lewat menu **Bahasa / Language**. Semua teks di aplikasi ikut berganti. Lihat [Bahasa](#bahasa).
 - **Tombol ♥ (donatur)**: daftar donatur aplikasi dan tombol **Donasi**. Lihat [Donasi](#donasi).
 - **Icon aplikasi** dengan desain yang sama seperti icon tray (bar usage 5 jam & 7 hari per akun di atas kotak gelap), tampil di Explorer, taskbar, Finder/Dock, dan jendela aplikasi.
-- **Pilih akun yang ditampilkan** (Claude, ChatGPT, atau keduanya). Hanya CLI yang terpasang di komputer yang muncul di pilihan.
+- **Pilih akun yang ditampilkan** (Claude, ChatGPT, Antigravity, atau kombinasinya). Hanya CLI yang terpasang di komputer yang muncul di pilihan.
 - **Jalankan otomatis saat login** (opsional).
 - **Tahan terhadap rate limit**: bila server membalas HTTP 429, data terakhir tetap ditampilkan dan aplikasi menunda pengecekan secara bertahap.
 
@@ -75,6 +77,9 @@ Usage Monitor **tidak punya login sendiri**. Aplikasi membaca login yang sudah d
    Login dengan API key tidak memiliki batas 5 jam/7 hari sehingga tidak bisa ditampilkan.
 2. **ChatGPT** — install Codex CLI, jalankan `codex login` dan pilih **Sign in with ChatGPT**.
    Login dengan API key tidak didukung.
+3. **Antigravity** — install Antigravity CLI, jalankan `agy`, lalu login dengan **akun Google**.
+   Login dengan `GEMINI_API_KEY` atau Application Default Credentials (`AGY_ADC_AUTH`) tidak memiliki kuota akun sehingga tidak bisa ditampilkan.
+   > Token login `agy` hanya berlaku sekitar **1 jam** dan diperbarui oleh `agy` selama `agy` berjalan. Jika `agy` sudah lama tidak dibuka, Usage Monitor tetap menampilkan data terakhir dengan catatan *Token kedaluwarsa*; buka `agy` sekali dan data kembali diperbarui.
 
 Cukup salah satu saja. Jika hanya satu CLI yang terpasang, Usage Monitor hanya menampilkan akun itu.
 
@@ -141,7 +146,7 @@ build.cmd install
 | **ⓘ** di popup | Jendela *Tentang*: versi aplikasi dan tombol **Periksa update** |
 | **⚙** di popup | Menu pengaturan (sama dengan klik kanan icon) |
 | **Klik kanan** icon | Menu: Tampilkan usage, Refresh sekarang, **Tampilkan akun**, Jalankan saat Windows start, **Bahasa**, Donatur & donasi…, Tentang & update…, Keluar |
-| **Hover** icon | Ringkasan, misalnya `Claude 5h 18% \| 7d 46%` |
+| **Hover** icon | Ringkasan, misalnya `Claude 5h 18% \| 7d 46%`, `AG 7d 0%` |
 | **Esc** / klik di luar popup | Menutup popup |
 
 Menu *Tampilkan akun* tetap terbuka saat dicentang, sehingga bisa memilih lebih dari satu akun sekaligus.
@@ -170,7 +175,7 @@ open UsageMonitor.app
 
 Icon muncul di menu bar (aplikasi tidak tampil di Dock). Jika ingin, salin `UsageMonitor.app` ke `/Applications`.
 
-> **Akses Keychain:** di macOS, claude CLI menyimpan login di Keychain (item `Claude Code-credentials`). Jika macOS meminta izin, pilih **Always Allow** agar tidak ditanya setiap refresh.
+> **Akses Keychain:** di macOS, claude CLI menyimpan login di Keychain (item `Claude Code-credentials`), begitu juga `agy` (item `gemini`, akun `antigravity`). Jika macOS meminta izin, pilih **Always Allow** agar tidak ditanya setiap refresh.
 
 > **Gatekeeper:** aplikasi tidak ditandatangani dengan Developer ID. Jika `UsageMonitor.app` diunduh dan diblokir: klik kanan → **Open**, atau jalankan `xattr -dr com.apple.quarantine UsageMonitor.app`.
 
@@ -198,9 +203,11 @@ Butuh Python 3.8+, GTK 3, dan AppIndicator. Tidak ada paket Python tambahan dari
 
 | Distro | Perintah |
 |---|---|
-| Ubuntu / Debian / Mint | `sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 libnotify-bin` |
-| Fedora | `sudo dnf install python3-gobject gtk3 libayatana-appindicator-gtk3 libnotify` |
-| Arch | `sudo pacman -S python-gobject gtk3 libayatana-appindicator libnotify` |
+| Ubuntu / Debian / Mint | `sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 libnotify-bin libsecret-tools` |
+| Fedora | `sudo dnf install python3-gobject gtk3 libayatana-appindicator-gtk3 libnotify libsecret` |
+| Arch | `sudo pacman -S python-gobject gtk3 libayatana-appindicator libnotify libsecret` |
+
+`libsecret-tools` / `libsecret` (perintah `secret-tool`) hanya dibutuhkan untuk akun **Antigravity**, karena `agy` menyimpan login di keyring sistem.
 
 Jalankan:
 
@@ -215,10 +222,10 @@ python3 usagemonitor.py
 
 Di Linux, klik icon tray standar selalu membuka **menu** (bukan jendela). Menu berisi:
 
-- usage 5 jam & 7 hari per akun, dengan bar teks `▰▰▱▱▱` dan titik warna 🟢🟠🔴
+- usage 5 jam & 7 hari per akun (Antigravity: kuota mingguan per grup model), dengan bar teks `▰▰▱▱▱` dan titik warna 🟢🟠🔴
 - waktu reset, plan, dan email
 - Refresh sekarang
-- **Tampilkan akun** (centang Claude / ChatGPT)
+- **Tampilkan akun** (centang Claude / ChatGPT / Antigravity)
 - Jalankan saat login
 - **⚙ Bahasa** (Ikuti sistem / Bahasa Indonesia / English)
 - **♥ Donatur & donasi…** (daftar donatur dan tombol Donasi)
@@ -270,7 +277,7 @@ Jika sedang offline atau GitHub tidak bisa dihubungi, pengecekan dilewati tanpa 
 
 **Tampilkan akun**
 
-- Hanya berisi CLI yang terdeteksi terpasang: folder `~/.claude` / `~/.codex` ada, atau perintah `claude` / `codex` ditemukan.
+- Hanya berisi CLI yang terdeteksi terpasang: folder `~/.claude` / `~/.codex` / `~/.gemini/antigravity-cli` ada, atau perintah `claude` / `codex` / `agy` ditemukan.
 - Deteksi diulang setiap menu dibuka dan setiap refresh. CLI yang baru di-install otomatis muncul dan langsung tercentang.
 - Minimal satu akun harus tercentang.
 - Jika tidak ada CLI yang terdeteksi, kedua akun ditampilkan beserta petunjuk login.
@@ -337,6 +344,7 @@ Usage Monitor hanya **membaca** token login yang sudah dibuat oleh CLI, lalu men
 |---|---|---|
 | Claude | `~/.claude/.credentials.json` (macOS: Keychain `Claude Code-credentials`), email dari `~/.claude.json` | `GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1` |
 | ChatGPT | `~/.codex/auth.json` (atau `$CODEX_HOME/auth.json`) | `GET https://chatgpt.com/backend-api/wham/usage`, dan `GET .../wham/rate-limit-reset-credits` (hanya jika ada jatah reset) |
+| Antigravity | Keyring sistem, entri `gemini` / `antigravity` yang dibuat `agy` — Windows: Credential Manager (`gemini:antigravity`), macOS: Keychain, Linux: Secret Service (`secret-tool`) | `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` (paket & project, di-cache) dan `POST .../v1internal:retrieveUserQuotaSummary` |
 
 Aplikasi **hanya membaca**. Endpoint untuk *memakai* jatah reset (`.../rate-limit-reset-credits/consume`) tidak pernah dipanggil, jadi jatah reset kamu tidak akan terpakai oleh Usage Monitor.
 
@@ -345,9 +353,10 @@ Aplikasi **hanya membaca**. Endpoint untuk *memakai* jatah reset (`.../rate-limi
 - **Daftar donatur** dimuat dari `https://raw.githubusercontent.com/narayaitsolution/usage-monitor/main/donors.json` (tanpa data pribadi) hanya saat jendela Donatur dibuka.
 - **Cek update** hanya mengirim satu request tanpa data pribadi ke API publik GitHub (`GET https://api.github.com/repos/narayaitsolution/usage-monitor/releases/latest`) saat aplikasi dibuka atau saat menekan **Periksa update**. File update hanya diunduh jika kamu menekan **Update**.
 - **Request usage Claude mengaku sebagai claude-cli** (header `x-app: cli` dan `User-Agent: claude-cli/…`). Server Anthropic hanya mengirim daftar *Limit resets* ke aplikasi resminya, jadi tanpa header ini daftar tersebut kosong. Ini bukan cara yang didukung resmi oleh Anthropic: bisa berhenti bekerja sewaktu-waktu, dan pengguna menanggung risikonya sendiri. Versi claude-cli yang ditiru diatur di konstanta `ClaudeCliUserAgent` (Windows), `claudeCliUserAgent` (macOS), dan `CLAUDE_CLI_USER_AGENT` (Linux).
-- Jika token kedaluwarsa, cukup jalankan `claude` atau `codex` sekali; CLI akan memperbaruinya dan Usage Monitor pulih sendiri.
+- **Request Antigravity mengaku sebagai `agy`** (header `User-Agent: antigravity`). Server Google menolak request kuota (HTTP 403) dari klien lain. Sama seperti header claude-cli di atas, ini bukan cara yang didukung resmi oleh Google: bisa berhenti bekerja sewaktu-waktu, dan pengguna menanggung risikonya sendiri. Nilainya diatur di konstanta `AntigravityUserAgent` (Windows), `antigravityUserAgent` (macOS), dan `ANTIGRAVITY_USER_AGENT` (Linux).
+- Jika token kedaluwarsa, cukup jalankan `claude`, `codex`, atau `agy` sekali; CLI akan memperbaruinya dan Usage Monitor pulih sendiri.
 
-> ⚠️ Kedua endpoint usage di atas **tidak didokumentasikan secara resmi** dan bisa berubah sewaktu-waktu tanpa pemberitahuan.
+> ⚠️ Semua endpoint usage di atas **tidak didokumentasikan secara resmi** dan bisa berubah sewaktu-waktu tanpa pemberitahuan.
 
 ---
 
@@ -356,12 +365,13 @@ Aplikasi **hanya membaca**. Endpoint untuk *memakai* jatah reset (`.../rate-limi
 | Pesan / gejala | Penyebab & solusi |
 |---|---|
 | **Dibatasi server (429)** | Terlalu banyak request ke server usage. Data terakhir tetap ditampilkan; aplikasi menunggu 5 → 10 → 20 → maks. 30 menit sebelum mencoba lagi. Hindari menekan Refresh berulang-ulang. |
-| **Token kedaluwarsa** / **Token ditolak (401/403)** | Jalankan `claude` atau `codex` sekali agar token diperbarui, lalu tekan Refresh. |
+| **Token kedaluwarsa** / **Token ditolak (401/403)** | Jalankan `claude`, `codex`, atau `agy` sekali agar token diperbarui, lalu tekan Refresh. Token `agy` hanya berlaku ±1 jam, jadi catatan ini wajar muncul untuk Antigravity jika `agy` sudah lama tidak dibuka. |
 | **Belum login** | Login lewat CLI terlebih dahulu (lihat [Persyaratan akun](#persyaratan-akun)). |
 | **Codex tidak login dengan akun ChatGPT** | Codex memakai API key. Jalankan `codex login` dan pilih *Sign in with ChatGPT*. |
 | Icon tidak terlihat (Windows) | Cek menu panah **^** di taskbar, lalu seret icon ke taskbar. |
 | Icon tidak terlihat (Linux GNOME) | Install extension *AppIndicator and KStatusNotifierItem Support*. |
-| Akun tidak muncul di *Tampilkan akun* | CLI-nya tidak terdeteksi. Pastikan CLI sudah dijalankan minimal sekali (agar folder `~/.claude` / `~/.codex` terbentuk). |
+| Akun tidak muncul di *Tampilkan akun* | CLI-nya tidak terdeteksi. Pastikan CLI sudah dijalankan minimal sekali (agar folder `~/.claude` / `~/.codex` / `~/.gemini/antigravity-cli` terbentuk). |
+| **Butuh 'secret-tool'** (Linux, Antigravity) | Install `libsecret-tools` (Debian/Ubuntu) atau `libsecret` (Fedora/Arch). |
 
 Untuk mengecek data tanpa GUI:
 
@@ -390,7 +400,8 @@ python3 usagemonitor.py --test
 │   └── src/
 │       ├── Program.cs       entry point, mode --test / --preview
 │       ├── Models.cs        model data & daftar provider
-│       ├── Fetcher.cs       baca kredensial, panggil API, deteksi CLI
+│       ├── Fetcher.cs       baca kredensial, panggil API, deteksi CLI (Claude, ChatGPT)
+│       ├── Antigravity.cs   provider Antigravity: baca login agy dari Credential Manager, kuota mingguan
 │       ├── Http.cs          HTTP helper
 │       ├── Json.cs          JSON helper
 │       ├── TrayContext.cs   icon tray, menu, timer, back-off 429, startup, cek update
@@ -436,13 +447,13 @@ Kontribusi dipersilakan — fork, buat perubahan, lalu kirim pull request.
    - macOS: `AppInfo.version` di `macos/Sources/UsageMonitor.swift` dan `CFBundleShortVersionString` di `macos/build.sh`
    - Linux: `VERSION` di `linux/usagemonitor.py`
 2. Build `windows\UsageMonitor.exe` (dan `UsageMonitor-macos.zip` berisi `UsageMonitor.app` jika ada Mac untuk build).
-3. Buat rilis di GitHub dengan tag `v<versi>` (misalnya `v2.1`), isi deskripsi dengan daftar perubahan — teks ini yang tampil di jendela update — lalu lampirkan `UsageMonitor.exe`, `linux/usagemonitor.py`, `linux/usagemonitor.svg`, dan (opsional) `UsageMonitor-macos.zip`.
+3. Buat rilis di GitHub dengan tag `v<versi>` (misalnya `v3.0`), isi deskripsi dengan daftar perubahan — teks ini yang tampil di jendela update — lalu lampirkan `UsageMonitor.exe`, `linux/usagemonitor.py`, `linux/usagemonitor.svg`, dan (opsional) `UsageMonitor-macos.zip`.
 
 Aplikasi membaca rilis **terbaru yang sudah dipublikasikan** (bukan draft atau pre-release), membandingkan nomor versinya dengan versi yang sedang berjalan, dan mencari file yang cocok untuk platformnya berdasarkan nama file.
 
 **Icon aplikasi** dibuat dari satu desain oleh `python tools/make_icons.py` (butuh Pillow: `pip install pillow`). File hasilnya (`windows/app.ico`, `macos/AppIcon.icns`, `linux/usagemonitor.svg`) ikut di-commit, jadi build biasa tidak butuh Python. Jalankan ulang script ini hanya jika desain icon diubah; ubah juga `AppIcon` di `windows/src/UpdateForms.cs` agar logo di jendela Tentang tetap sama.
 
-**Menambah provider baru**: tambahkan fungsi fetch dan entri di daftar provider (`Providers.All` di Windows, `allProviders` di macOS, `PROVIDERS` di Linux).
+**Menambah provider baru**: tambahkan fungsi fetch dan entri di daftar provider (`Providers.All` di Windows, `allProviders` di macOS, `PROVIDERS` di Linux). Provider yang tidak punya pasangan limit 5 jam/7 hari (seperti Antigravity) memakai `FixedRows = false` dan mengisi `MoreRows` saja.
 
 **Ide pengembangan**
 - Interval refresh yang bisa diatur dari menu
@@ -458,4 +469,4 @@ Copyright © 2026 **Naraya IT Solution** (narayaitsolution@gmail.com).
 
 Dirilis di bawah [Lisensi MIT](LICENSE) — bebas digunakan, dimodifikasi, dikembangkan, dan didistribusikan ulang, termasuk untuk keperluan komersial, selama menyertakan teks lisensi.
 
-Usage Monitor adalah proyek independen dan **tidak berafiliasi** dengan Anthropic maupun OpenAI. "Claude" adalah merek dagang Anthropic; "ChatGPT" dan "Codex" adalah merek dagang OpenAI.
+Usage Monitor adalah proyek independen dan **tidak berafiliasi** dengan Anthropic, OpenAI, maupun Google. "Claude" adalah merek dagang Anthropic; "ChatGPT" dan "Codex" adalah merek dagang OpenAI; "Antigravity" dan "Gemini" adalah merek dagang Google.

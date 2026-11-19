@@ -35,14 +35,18 @@ namespace UsageMonitor
         /// Extra info lines: Claude "Limit resets" grants, ChatGPT "usage limit reset" credits.
         public List<string> Infos = new List<string>();
 
+        /// False for providers without the 5h/7d pair (Antigravity): only MoreRows are shown.
+        public bool FixedRows = true;
+
         public List<UsageWindow> Rows()
         {
-            var list = new List<UsageWindow> { Five, Week };
+            var list = FixedRows ? new List<UsageWindow> { Five, Week } : new List<UsageWindow>();
             list.AddRange(MoreRows);
             return list;
         }
         public Color Accent;
         public bool RateLimited;   // server answered HTTP 429
+        public bool KeepPrevious;  // soft error (e.g. expired token): keep showing the last good data with Error as note
         public string Note;        // shown under the rows, e.g. when displaying older data
         public DateTime FetchedAt;
     }
@@ -72,6 +76,11 @@ namespace UsageMonitor
             {
                 Id = "codex", Title = "ChatGPT", MenuTitle = "ChatGPT (Codex)", Short = "GPT",
                 Accent = Fetcher.GptColor, Fetch = Fetcher.FetchCodex, Installed = Fetcher.CodexInstalled
+            },
+            new ProviderDef
+            {
+                Id = "antigravity", Title = "Antigravity", MenuTitle = "Antigravity (agy)", Short = "AG",
+                Accent = Fetcher.AntigravityColor, Fetch = Fetcher.FetchAntigravity, Installed = Fetcher.AntigravityInstalled
             },
         };
 

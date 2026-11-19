@@ -16,9 +16,9 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyProduct("Usage Monitor")]
 [assembly: System.Reflection.AssemblyCompany("Naraya IT Solution")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Naraya IT Solution")]
-[assembly: System.Reflection.AssemblyVersion("2.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("2.2")]
+[assembly: System.Reflection.AssemblyVersion("3.0.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("3.0.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("3.0")]
 
 namespace UsageMonitor
 {
@@ -36,7 +36,7 @@ namespace UsageMonitor
                 var inst = new List<string>();
                 foreach (var d in Providers.All) if (d.Installed()) inst.Add(d.Id);
                 sb.AppendLine("installed: " + (inst.Count > 0 ? string.Join(",", inst.ToArray()) : "(none)"));
-                foreach (var p in new[] { Fetcher.FetchClaude(), Fetcher.FetchCodex() })
+                foreach (var p in new[] { Fetcher.FetchClaude(), Fetcher.FetchCodex(), Fetcher.FetchAntigravity() })
                 {
                     sb.AppendLine(p.Name + " plan=" + p.Plan + " account=" + p.Account + " error=" + p.Error);
                     foreach (var w in p.Rows())

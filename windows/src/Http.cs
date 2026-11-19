@@ -24,8 +24,19 @@ namespace UsageMonitor
     {
         public static string Get(string url, Dictionary<string, string> headers)
         {
+            return Send("GET", url, headers, null);
+        }
+
+        /// POST with a JSON body.
+        public static string Post(string url, Dictionary<string, string> headers, string json)
+        {
+            return Send("POST", url, headers, json);
+        }
+
+        static string Send(string method, string url, Dictionary<string, string> headers, string json)
+        {
             var req = (HttpWebRequest)WebRequest.Create(url);
-            req.Method = "GET";
+            req.Method = method;
             req.Timeout = 20000;
             req.ReadWriteTimeout = 20000;
             req.Accept = "application/json";
@@ -38,6 +49,13 @@ namespace UsageMonitor
             }
             try
             {
+                if (json != null)
+                {
+                    byte[] bytes = System.Text.Encoding.UTF8.GetBytes(json);
+                    req.ContentType = "application/json";
+                    req.ContentLength = bytes.Length;
+                    using (var rs = req.GetRequestStream()) rs.Write(bytes, 0, bytes.Length);
+                }
                 using (var resp = (HttpWebResponse)req.GetResponse())
                 using (var sr = new StreamReader(resp.GetResponseStream()))
                     return sr.ReadToEnd();
