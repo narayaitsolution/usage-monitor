@@ -334,8 +334,11 @@ namespace UsageMonitor
             Controls.Add(name);
             Controls.Add(ver);
             y += Sc(48 + 14);
-            AddText(L.T("Memantau sisa batas pemakaian akun Claude (claude CLI) dan ChatGPT (Codex CLI) — 5 jam & 7 hari — serta kuota mingguan Antigravity (agy CLI) dari system tray.",
-                        "Shows the remaining usage limits of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts (5 hours & 7 days) and your weekly Antigravity (agy CLI) quota in the system tray."),
+            AddText(L.T("Memantau batas pemakaian Claude, ChatGPT (Codex) dan Antigravity (agy) dari system tray.",
+                        "Shows your Claude, ChatGPT (Codex) and Antigravity (agy) usage limits in the system tray."),
+                    BodyFont, Fg, 6);
+            AddText(L.T("Gratis dan open source. Aplikasi ini menerima donasi (tombol ♥).",
+                        "Free and open source. Donations are welcome (♥ button)."),
                     BodyFont, Fg, 10);
             AddLink(AppInfo.RepoUrl, AppInfo.RepoUrl, 24);
             AddText(L.T("© 2026 Naraya IT Solution · Lisensi MIT. Tidak berafiliasi dengan Anthropic, OpenAI, maupun Google.",

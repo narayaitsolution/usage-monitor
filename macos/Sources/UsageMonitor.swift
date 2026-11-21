@@ -871,7 +871,7 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "3.0"
+    static let version = "3.1"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
@@ -1218,8 +1218,11 @@ struct AboutView: View {
                     Text(T("Versi ", "Version ") + AppInfo.version).foregroundColor(.secondary)
                 }
             }
-            Text(T("Memantau sisa batas pemakaian akun Claude (claude CLI) dan ChatGPT (Codex CLI) — 5 jam & 7 hari — serta kuota mingguan Antigravity (agy CLI) dari menu bar.",
-                   "Shows the remaining usage limits of your Claude (claude CLI) and ChatGPT (Codex CLI) accounts (5 hours & 7 days) and your weekly Antigravity (agy CLI) quota in the menu bar."))
+            Text(T("Memantau batas pemakaian Claude, ChatGPT (Codex) dan Antigravity (agy) dari menu bar.",
+                   "Shows your Claude, ChatGPT (Codex) and Antigravity (agy) usage limits in the menu bar."))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(T("Gratis dan open source. Aplikasi ini menerima donasi (tombol ♥).",
+                   "Free and open source. Donations are welcome (♥ button)."))
                 .fixedSize(horizontal: false, vertical: true)
             if let url = URL(string: AppInfo.repoURL) {
                 Link(AppInfo.repoURL, destination: url)
