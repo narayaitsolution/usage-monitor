@@ -7,7 +7,7 @@ Icon tray Linux (AppIndicator / StatusNotifierItem) untuk memantau usage **Claud
 - Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan (Antigravity: 1 bar per grup model, maks. 2), urut Claude, ChatGPT, Antigravity.
 - Warna: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%. Notifikasi (`notify-send`) saat usage ≥ 90%.
 - Refresh otomatis tiap 5 menit.
-- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ Tentang & update… → Periksa update**. Versi baru (`usagemonitor.py`, atau kode sumber jika rilis tidak menyertakannya) diunduh ke folder Downloads; ganti file lama secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut (`skipped_version` di `settings.json`).
+- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ Tentang & update… → Periksa update**. Saat tombol **Update** diklik, versi aplikasi dibandingkan lagi dengan versi terbaru di GitHub: jika sama, tidak ada yang diunduh; jika GitHub lebih baru, update ditawarkan dan diunduh. Versi baru (`usagemonitor.py`, atau kode sumber jika rilis tidak menyertakannya) diunduh ke folder Downloads; ganti file lama secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut (`skipped_version` di `settings.json`).
 
 > Di Linux, klik icon tray standar (AppIndicator) selalu membuka **menu**, bukan jendela popup. Karena itu usage ditampilkan sebagai isi menu.
 

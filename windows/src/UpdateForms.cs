@@ -219,7 +219,7 @@ namespace UsageMonitor
     class UpdateForm : DarkForm
     {
         public event EventHandler ExitRequested;
-        public readonly ReleaseInfo Release;
+        public ReleaseInfo Release { get; private set; }
         string error;
         /// True while the download runs (the window is not rebuilt for a language change then).
         public bool Busy { get; private set; }
@@ -247,8 +247,53 @@ namespace UsageMonitor
                         "Skip: version " + Release.Version + " won't be offered again. Close this window to be reminded the next time the app starts."),
                     SmallFont, Muted, 14);
             Button[] b = AddButtons("Update", "Skip");
-            b[0].Click += delegate { StartDownload(); };
+            b[0].Click += delegate { VerifyThenDownload(); };
             b[1].Click += delegate { Settings.SkippedVersion = Release.Version; Close(); };
+            AcceptButton = b[0];
+            End();
+        }
+
+        /// Before updating: compare the running version with the latest release on GitHub again.
+        /// Same (or older) on GitHub -> no update needed. Newer -> download that release.
+        void VerifyThenDownload()
+        {
+            error = null;
+            Busy = true;
+            Begin();
+            AddText(L.T("Memeriksa versi…", "Checking versions…"), TitleFont, Fg, 4);
+            AddText(L.T("Versi Anda: " + AppInfo.Version + ". Mengecek versi terbaru di GitHub…",
+                        "You have version " + AppInfo.Version + ". Checking the latest version on GitHub…"), BodyFont, Muted, 14);
+            End();
+            RunAsync(() => Updater.FetchLatest(), (r, ex) =>
+            {
+                Busy = false;
+                if (ex != null)
+                {
+                    error = L.T("Gagal memeriksa versi di GitHub: ", "Could not check the version on GitHub: ") + ex.Message;
+                    ShowOffer();
+                    return;
+                }
+                if (!Updater.IsNewer(r)) { ShowUpToDate(r); return; }
+                if (Updater.Compare(r.Version, Release.Version) != 0)
+                {
+                    // GitHub now has a different release than the one offered: show its notes first
+                    Release = r;
+                    ShowOffer();
+                    return;
+                }
+                Release = r;
+                StartDownload();
+            });
+        }
+
+        void ShowUpToDate(ReleaseInfo r)
+        {
+            Begin();
+            AddText(L.T("Tidak perlu update", "No update needed"), TitleFont, Fg, 4);
+            AddText(L.T("✓ Anda sudah memakai versi terbaru (" + AppInfo.Version + "). Versi di GitHub: " + r.Version + ".",
+                        "✓ You have the latest version (" + AppInfo.Version + "). Version on GitHub: " + r.Version + "."), BodyFont, Ok, 16);
+            Button[] b = AddButtons(L.T("Tutup", "Close"));
+            b[0].Click += delegate { Close(); };
             AcceptButton = b[0];
             End();
         }

@@ -871,7 +871,7 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "3.1"
+    static let version = "3.2"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
@@ -1023,14 +1023,54 @@ func migrateFromUsageTray() {
 
 @MainActor
 final class UpdateModel: ObservableObject {
-    enum Phase { case offer, downloading, done(URL) }
-    let release: ReleaseInfo
+    enum Phase { case offer, checking, upToDate(String), downloading, done(URL) }
+    @Published private(set) var release: ReleaseInfo
     @Published var phase = Phase.offer
     @Published var error: String?
     var onClose: (@MainActor () -> Void)?
     var onQuit: (@MainActor () -> Void)?
 
     init(_ r: ReleaseInfo) { release = r }
+
+    /// True while checking or downloading (the window is not rebuilt for a language change then).
+    var busy: Bool {
+        switch phase {
+        case .checking, .downloading: return true
+        default: return false
+        }
+    }
+
+    /// Before updating: compare the running version with the latest release on GitHub again.
+    /// Same (or older) on GitHub -> no update needed. Newer -> download that release.
+    func verifyThenUpdate() {
+        error = nil
+        phase = .checking
+        Task {
+            let r: ReleaseInfo
+            do {
+                r = try await Updater.fetchLatest()
+            } catch let e {
+                self.error = T("Gagal memeriksa versi di GitHub: ", "Could not check the version on GitHub: ") + updateErrorText(e)
+                self.phase = .offer
+                return
+            }
+            if !Updater.isNewer(r) {
+                self.phase = .upToDate(r.version)
+                return
+            }
+            let changed = Updater.compare(r.version, self.release.version) != 0
+            self.release = r
+            if changed {
+                // GitHub now has a different release than the one offered: show its notes first
+                self.phase = .offer
+            } else if r.assetURL == nil {
+                if let u = URL(string: r.pageURL) { NSWorkspace.shared.open(u) }
+                self.onClose?()
+            } else {
+                self.startDownload()
+            }
+        }
+    }
 
     func startDownload() {
         guard release.assetURL != nil else { return }
@@ -1103,6 +1143,8 @@ struct UpdateView: View {
         VStack(alignment: .leading, spacing: 10) {
             switch model.phase {
             case .offer: offer
+            case .checking: checking
+            case .upToDate(let latest): upToDate(latest)
             case .downloading: downloading
             case .done(let url): done(url)
             }
@@ -1147,15 +1189,33 @@ struct UpdateView: View {
                     Updater.skip(r)
                     model.onClose?()
                 }
-                Button("Update") {
-                    if r.assetURL == nil {
-                        if let u = URL(string: r.pageURL) { NSWorkspace.shared.open(u) }
-                        model.onClose?()
-                    } else {
-                        model.startDownload()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
+                Button("Update") { model.verifyThenUpdate() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    var checking: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(T("Memeriksa versi…", "Checking versions…")).font(.system(size: 17, weight: .semibold))
+            Text(T("Versi Anda: \(AppInfo.version). Mengecek versi terbaru di GitHub…",
+                   "You have version \(AppInfo.version). Checking the latest version on GitHub…"))
+                .foregroundColor(.secondary)
+            ProgressView().progressViewStyle(.linear)
+        }
+    }
+
+    func upToDate(_ latest: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(T("Tidak perlu update", "No update needed")).font(.system(size: 17, weight: .semibold))
+            Text(T("✓ Anda sudah memakai versi terbaru (\(AppInfo.version)). Versi di GitHub: \(latest).",
+                   "✓ You have the latest version (\(AppInfo.version)). Version on GitHub: \(latest)."))
+                .foregroundColor(.green)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button(T("Tutup", "Close")) { model.onClose?() }
+                    .keyboardShortcut(.defaultAction)
             }
         }
     }
@@ -1567,7 +1627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aboutWindow = nil
         donorsWindow = nil
         if let m = updateModel, let w = updateWindow, w.isVisible {
-            if case .downloading = m.phase { return }
+            if m.busy { return }
             showUpdate(m.release, force: true)
         }
     }

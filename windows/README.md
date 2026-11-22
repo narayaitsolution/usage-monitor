@@ -11,7 +11,7 @@ Aplikasi system tray Windows untuk memantau batas usage **Claude** (login via `c
 - Warna bar: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%.
 - Notifikasi Windows saat salah satu usage mencapai 90%.
 - Refresh otomatis tiap 5 menit, plus saat popup dibuka jika data lebih dari 60 detik.
-- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ → Periksa update**. Versi baru (`UsageMonitor.exe`) diunduh ke folder Downloads; pindahkan sendiri menggantikan file lama (aplikasi portable). **Skip** menyembunyikan tawaran untuk versi tersebut (disimpan di `HKCU\Software\UsageMonitor`, value `SkippedVersion`).
+- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ → Periksa update**. Saat tombol **Update** diklik, versi aplikasi dibandingkan lagi dengan versi terbaru di GitHub: jika sama, tidak ada yang diunduh; jika GitHub lebih baru, update ditawarkan dan diunduh. Versi baru (`UsageMonitor.exe`) diunduh ke folder Downloads; pindahkan sendiri menggantikan file lama (aplikasi portable). **Skip** menyembunyikan tawaran untuk versi tersebut (disimpan di `HKCU\Software\UsageMonitor`, value `SkippedVersion`).
 
 ## Persyaratan
 

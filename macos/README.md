@@ -9,7 +9,7 @@ Aplikasi menu bar macOS untuk memantau usage **Claude** (`claude` CLI) dan **Cha
 - Icon berisi 2 bar mini (5h, 7d) per akun yang ditampilkan (Antigravity: 1 bar per grup model, maks. 2), urut Claude, ChatGPT, Antigravity.
 - Warna bar: 🟢 < 50% · 🟠 50–75% · 🔴 > 75%. Notifikasi saat usage ≥ 90%.
 - Refresh otomatis tiap 5 menit.
-- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ → Periksa update**. Versi baru diunduh ke folder Downloads (file rilis `-macos.zip`/`.dmg`, atau kode sumber jika rilis tidak menyertakannya); ganti `UsageMonitor.app` secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut.
+- **Cek update** dari GitHub Releases setiap aplikasi dibuka, dan manual lewat **ⓘ → Periksa update**. Saat tombol **Update** diklik, versi aplikasi dibandingkan lagi dengan versi terbaru di GitHub: jika sama, tidak ada yang diunduh; jika GitHub lebih baru, update ditawarkan dan diunduh. Versi baru diunduh ke folder Downloads (file rilis `-macos.zip`/`.dmg`, atau kode sumber jika rilis tidak menyertakannya); ganti `UsageMonitor.app` secara manual. **Skip** menyembunyikan tawaran untuk versi tersebut.
 
 ## Persyaratan
 
