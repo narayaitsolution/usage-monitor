@@ -16,9 +16,9 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyProduct("Usage Monitor")]
 [assembly: System.Reflection.AssemblyCompany("Naraya IT Solution")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Naraya IT Solution")]
-[assembly: System.Reflection.AssemblyVersion("3.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("3.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("3.2")]
+[assembly: System.Reflection.AssemblyVersion("3.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("3.3.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("3.3")]
 
 namespace UsageMonitor
 {

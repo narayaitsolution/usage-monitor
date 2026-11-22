@@ -15,7 +15,7 @@ namespace UsageMonitor
     {
         public const string Name = "Usage Monitor";
         /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-        public const string Version = "3.2";
+        public const string Version = "3.3";
         public const string Repo = "narayaitsolution/usage-monitor";
         public const string RepoUrl = "https://github.com/" + Repo;
         public const string UserAgent = "UsageMonitor/" + Version;

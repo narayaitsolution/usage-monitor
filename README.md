@@ -6,7 +6,7 @@ A small system tray / menu bar app that shows the remaining usage limits of your
 |---|---|---|
 | **Claude** | [`claude` CLI (Claude Code)](https://docs.anthropic.com/en/docs/claude-code), Pro/Max plan | 5-hour and 7-day limits, extra model limits, limit resets |
 | **ChatGPT** | [Codex CLI](https://github.com/openai/codex), *Sign in with ChatGPT* | 5-hour and 7-day limits, usage limit resets |
-| **Antigravity** | Antigravity CLI (`agy`), Google account | Weekly quota per model group (e.g. `7 days · Claude & GPT`) |
+| **Antigravity** | Antigravity CLI (`agy`), Google account | Weekly quota per model group (e.g. `7 days · Claude & GPT`, `7 days · Gemini`) |
 
 Available for **Windows**, **macOS** and **Linux**. Only the CLIs installed on your computer are shown.
 

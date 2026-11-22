@@ -17,7 +17,8 @@ namespace UsageMonitor
         const string AgyCredential = "gemini:antigravity";
         // Identity sent with the Antigravity requests (see FetchAntigravity)
         const string AntigravityUserAgent = "antigravity";
-        const string CloudCode = "https://cloudcode-pa.googleapis.com/v1internal:";
+        // agy talks to the "daily" Cloud Code host; the plain cloudcode-pa host reports a different (unused) quota
+        const string CloudCode = "https://daily-cloudcode-pa.googleapis.com/v1internal:";
 
         public static bool AntigravityInstalled()
         {
@@ -62,7 +63,7 @@ namespace UsageMonitor
                     object lca = Json.Parse(Http.Post(CloudCode + "loadCodeAssist", h,
                         "{\"metadata\":{\"ideType\":\"ANTIGRAVITY\",\"platform\":\"PLATFORM_UNSPECIFIED\",\"pluginType\":\"GEMINI\"}}"));
                     agyProject = Json.Str(lca, "cloudaicompanionProject");
-                    agyPlan = Json.Str(Json.Obj(lca, "paidTier"), "name") ?? Json.Str(Json.Obj(lca, "currentTier"), "name");
+                    agyPlan = ShortPlanName(Json.Str(Json.Obj(lca, "paidTier"), "name") ?? Json.Str(Json.Obj(lca, "currentTier"), "name"));
                     agyProjectFor = s.Account;
                 }
                 s.Plan = agyPlan;
@@ -81,11 +82,44 @@ namespace UsageMonitor
                         var w = new UsageWindow(group != null ? win + " · " + group : win);
                         double? frac = Json.Num(b, "remainingFraction");
                         double? amount = Json.Num(b, "remainingAmount");
+                        // a used-up bucket omits remainingFraction (proto default 0)
+                        if (!frac.HasValue && !amount.HasValue) frac = 0;
                         if (frac.HasValue) w.Percent = Math.Max(0, Math.Min(100, (1 - frac.Value) * 100));
-                        else if (amount.HasValue) w.Label += L.T(" (sisa ", " (") + amount.Value + L.T(")", " left)");
+                        else w.Label += L.T(" (sisa ", " (") + amount.Value + L.T(")", " left)");
                         w.ResetAt = ParseIso(Json.Str(b, "resetTime"));
                         s.MoreRows.Add(w);
                     }
+                }
+
+                // Gemini models are not in the quota summary: their shared limit comes per model from fetchAvailableModels
+                if (!s.MoreRows.Exists(r => r.Label.Contains("Gemini")))
+                {
+                    try
+                    {
+                        object fam = Json.Parse(Http.Post(CloudCode + "fetchAvailableModels", h,
+                            "{\"project\":" + JsonString(agyProject ?? "") + "}"));
+                        var models = Json.Obj(fam, "models");
+                        double? minFrac = null; DateTime? reset = null;
+                        if (models != null)
+                            foreach (var kv in models)
+                            {
+                                if (!kv.Key.StartsWith("gemini", StringComparison.OrdinalIgnoreCase)) continue;
+                                var qi = Json.Obj(kv.Value, "quotaInfo");
+                                DateTime? r = ParseIso(Json.Str(qi, "resetTime"));
+                                if (qi == null || !r.HasValue) continue;
+                                double f = Json.Num(qi, "remainingFraction") ?? 0;
+                                if (!minFrac.HasValue || f < minFrac.Value) minFrac = f;
+                                if (!reset.HasValue || r.Value < reset.Value) reset = r;
+                            }
+                        if (minFrac.HasValue)
+                        {
+                            var w = new UsageWindow(WindowLabel("weekly", null) + " · Gemini");
+                            w.Percent = Math.Max(0, Math.Min(100, (1 - minFrac.Value) * 100));
+                            w.ResetAt = reset;
+                            s.MoreRows.Add(w);
+                        }
+                    }
+                    catch (HttpException ex) { if (s.MoreRows.Count == 0) throw; s.Infos.Add("Gemini: HTTP " + ex.Code); }
                 }
                 if (s.MoreRows.Count == 0) s.Infos.Add(L.T("Tidak ada batas kuota untuk akun ini.", "No quota limits reported for this account."));
             }
@@ -114,6 +148,15 @@ namespace UsageMonitor
                 case "five_hour": case "5h": return L.T("5 jam", "5 hours");
             }
             return !string.IsNullOrEmpty(window) ? window : (displayName ?? "Limit");
+        }
+
+        /// "Antigravity Starter Quota" -> "Starter" (the long name leaves no room for the account)
+        static string ShortPlanName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            if (name.StartsWith("Antigravity ", StringComparison.OrdinalIgnoreCase)) name = name.Substring(12);
+            if (name.EndsWith(" Quota", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 6);
+            return name;
         }
 
         /// "Claude and GPT models" -> "Claude & GPT"

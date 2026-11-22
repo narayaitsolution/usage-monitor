@@ -59,7 +59,7 @@ Aplikasi hanya **membaca** token login yang sudah dibuat oleh masing-masing CLI.
 |---|---|---|
 | Claude | `%USERPROFILE%\.claude\.credentials.json` (email dari `%USERPROFILE%\.claude.json`) | `GET https://api.anthropic.com/api/oauth/usage` (header `anthropic-beta: oauth-2025-04-20`) |
 | ChatGPT | `%CODEX_HOME%\auth.json`, default `%USERPROFILE%\.codex\auth.json` | `GET https://chatgpt.com/backend-api/wham/usage` (header `ChatGPT-Account-Id`) |
-| Antigravity | Windows Credential Manager, entri `gemini:antigravity` (dibuat `agy`) | `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` dan `.../v1internal:retrieveUserQuotaSummary` (header `User-Agent: antigravity`) |
+| Antigravity | Windows Credential Manager, entri `gemini:antigravity` (dibuat `agy`) | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`, `.../v1internal:retrieveUserQuotaSummary` dan `.../v1internal:fetchAvailableModels` (kuota Gemini) (header `User-Agent: antigravity`; host `daily-` sama dengan yang dipakai `agy`) |
 
 Jika token kedaluwarsa atau ditolak (401/403), popup meminta kamu membuka `claude` / `codex` sekali agar CLI me-refresh token.
 

@@ -334,7 +334,8 @@ func fetchCodex() async -> ProviderStatus {
 // agy keeps its Google sign-in in the login Keychain (go-keyring: service "gemini", account "antigravity"),
 // as JSON {"token": {"access_token", "expiry", ...}, "id_token_email"}. The token is only read, never
 // refreshed: agy refreshes it (about every hour) while it runs.
-let cloudCode = "https://cloudcode-pa.googleapis.com/v1internal:"
+// agy talks to the "daily" Cloud Code host; the plain cloudcode-pa host reports a different (unused) quota
+let cloudCode = "https://daily-cloudcode-pa.googleapis.com/v1internal:"
 // The quota endpoints answer 403 to unknown clients, so the requests identify themselves as agy
 let antigravityUserAgent = "antigravity"
 var agyCache: [String: (project: String, plan: String?)] = [:]   // account -> loadCodeAssist result
@@ -365,6 +366,14 @@ func agyWindowLabel(_ window: String?, _ displayName: String?) -> String {
     case "five_hour", "5h": return T("5 jam", "5 hours")
     default: return (window?.isEmpty == false ? window : displayName) ?? "Limit"
     }
+}
+
+/// "Antigravity Starter Quota" -> "Starter" (the long name leaves no room for the account)
+func agyPlanName(_ name: String) -> String {
+    var n = name
+    if n.lowercased().hasPrefix("antigravity ") { n = String(n.dropFirst(12)) }
+    if n.lowercased().hasSuffix(" quota") { n = String(n.dropLast(6)) }
+    return n
 }
 
 /// "Claude and GPT models" -> "Claude & GPT"
@@ -400,7 +409,7 @@ func fetchAntigravity() async -> ProviderStatus {
                 ["metadata": ["ideType": "ANTIGRAVITY", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"]])
             let plan = (lca["paidTier"] as? [String: Any])?["name"] as? String
                 ?? (lca["currentTier"] as? [String: Any])?["name"] as? String
-            agyCache[key] = (lca["cloudaicompanionProject"] as? String ?? "", plan)
+            agyCache[key] = (lca["cloudaicompanionProject"] as? String ?? "", plan.map(agyPlanName))
         }
         let cached = agyCache[key]!
         s.plan = cached.plan
@@ -411,13 +420,38 @@ func fetchAntigravity() async -> ProviderStatus {
                 if b["disabled"] as? Bool == true { continue }
                 let win = agyWindowLabel(b["window"] as? String, b["displayName"] as? String)
                 var w = UsageWindow(label: group.map { win + " · " + $0 } ?? win)
-                if let frac = num(b["remainingFraction"]) {
-                    w.percent = min(100, max(0, (1 - frac) * 100))
-                } else if let amount = num(b["remainingAmount"]) {
+                if let amount = num(b["remainingAmount"]), num(b["remainingFraction"]) == nil {
                     w.label += T(" (sisa \(Int(amount)))", " (\(Int(amount)) left)")
+                } else {
+                    // a used-up bucket omits remainingFraction (proto default 0)
+                    w.percent = min(100, max(0, (1 - (num(b["remainingFraction"]) ?? 0)) * 100))
                 }
                 w.resetAt = (b["resetTime"] as? String).flatMap(parseISODate)
                 s.moreRows.append(w)
+            }
+        }
+        // Gemini models are not in the quota summary: their shared limit comes per model from fetchAvailableModels
+        if !s.moreRows.contains(where: { $0.label.contains("Gemini") }) {
+            do {
+                let fam = try await httpGet(cloudCode + "fetchAvailableModels", headers, body: ["project": cached.project])
+                var minFrac: Double? = nil, reset: Date? = nil
+                for (id, m) in fam["models"] as? [String: Any] ?? [:] {
+                    guard id.lowercased().hasPrefix("gemini"),
+                          let qi = (m as? [String: Any])?["quotaInfo"] as? [String: Any],
+                          let r = (qi["resetTime"] as? String).flatMap(parseISODate) else { continue }
+                    let f = num(qi["remainingFraction"]) ?? 0
+                    minFrac = min(minFrac ?? f, f)
+                    reset = min(reset ?? r, r)
+                }
+                if let f = minFrac {
+                    var w = UsageWindow(label: agyWindowLabel("weekly", nil) + " · Gemini")
+                    w.percent = min(100, max(0, (1 - f) * 100))
+                    w.resetAt = reset
+                    s.moreRows.append(w)
+                }
+            } catch {
+                if s.moreRows.isEmpty { throw error }
+                s.infos.append("Gemini: " + errorText(error, cli: "agy"))
             }
         }
         if s.moreRows.isEmpty { s.infos.append(T("Tidak ada batas kuota untuk akun ini.", "No quota limits reported for this account.")) }
@@ -871,7 +905,7 @@ func tipLine(_ title: String, _ p: ProviderStatus?) -> String {
 enum AppInfo {
     static let name = "Usage Monitor"
     /// Major.Minor: Major naik untuk fitur baru, Minor untuk perubahan pada fitur yang ada.
-    static let version = "3.2"
+    static let version = "3.3"
     static let repo = "narayaitsolution/usage-monitor"
     static let repoURL = "https://github.com/\(repo)"
     static let userAgent = "UsageMonitor/\(version)"
